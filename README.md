@@ -15,6 +15,16 @@ GitHub Codespaces has account-dependent free quotas. Check your remaining quota 
 
 Cloud coding sessions and Codespaces are separate copies of the repository. After a new update is pushed here, run `git pull origin main` in the Codespaces terminal; the running development server will reload the changes. Preserve your local edits before pulling. Changes edited directly inside the Codespace appear through live reload. Creating the Codespace and opening its authenticated preview must be done from your GitHub account; it has not been launched by this coding environment.
 
+## If an existing Codespaces preview shows an error
+
+Open its terminal in the HRIS repository and run this single command:
+
+```sh
+git pull origin main && bash scripts/start-preview.sh
+```
+
+The startup helper checks Node.js, activates Node 24 through the Codespaces-provided nvm when needed, installs locked dependencies, starts a detached server, and verifies the real sign-in page before printing the app link. It preserves accounts and SQLite data. It is safe to rerun if the app is already healthy, and it will not stop an unrelated process on port 3000. Startup failures are shown in the terminal and saved to ignored `data/preview.log`. New containers run this helper automatically.
+
 ## Local development
 
 Requires Node.js 24 and npm 11. SQLite is provided by Node itself.
