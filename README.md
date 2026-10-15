@@ -51,7 +51,7 @@ Optional real-browser tests require Python Playwright (`pip install playwright`)
 
 ## Leave workflow and current policy
 
-- Employees submit and cancel their own pending requests and see only their own leave reasons and history. The employee directory is visible to all signed-in staff.
+- Employees submit and cancel their own pending requests and see only their own leave reasons and history. Employees land on a personal dashboard with their own profile, leave balances, requests, and history. Employee server responses contain only their own employee record and leave data; department lists, workforce counts, and the employee directory are limited to managers and administrators. Requests to change another employee’s leave return the same 404 as an unknown request.
 - Managers can review other employees' requests across the workspace. Administrators also manage employees and departments and can submit leave on behalf of an employee. Nobody can approve or decline their own request.
 - Annual leave: 20 days; sick leave: 10 days; personal leave: 5 days per calendar year. These are **prototype allowances**, not claims about statutory entitlements.
 - Counts use Monday–Friday, excluding weekends. Public holidays, carry-over, prorating, and custom policies are not implemented.
@@ -67,3 +67,4 @@ This is a functioning development prototype, not a production HR service. Before
 The app is single-workspace. Managers currently review across that workspace; teams do not yet have assigned approvers. Sample people use fictional `.demo` email addresses and have no seeded login passwords. Only accounts you explicitly create can sign in.
 
 API: POST/DELETE `/api/auth`, POST `/api/employees`, POST `/api/departments`, POST/PATCH `/api/leaves`. All workforce mutations require authentication and enforce roles server-side.
+

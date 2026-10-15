@@ -75,7 +75,8 @@ export default function Workspace({
   };
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState("Overview");
+  const personal = data.user.access === "employee";
+  const [tab, setTab] = useState(personal ? "My dashboard" : "Overview");
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState("");
   const [error, setError] = useState("");
@@ -225,18 +226,21 @@ export default function Workspace({
           <span className="company-icon">P</span>
           <div>
             <strong>People workspace</strong>
-            <small>HR management</small>
+            <small>{personal ? "Employee self-service" : "HR management"}</small>
           </div>
           <ChevronDown size={15} />
         </div>
         <p className="nav-label">WORKSPACE</p>
         <nav>
-          {[
+          {(personal ? [
+            { name: "My dashboard", icon: LayoutDashboard },
+            { name: "Leave requests", icon: CalendarDays },
+          ] : [
             { name: "Overview", icon: LayoutDashboard },
             { name: "Employees", icon: Users },
             { name: "Departments", icon: Building2 },
             { name: "Leave requests", icon: CalendarDays },
-          ].map(({ name, icon: Icon }) => (
+          ]).map(({ name, icon: Icon }) => (
             <button
               key={name}
               className={tab === name ? "nav-item selected" : "nav-item"}
@@ -305,14 +309,14 @@ export default function Workspace({
         <main>
           <div className="heading">
             <div>
-              <p className="eyebrow">YOUR PEOPLE, CONNECTED</p>
+              <p className="eyebrow">{personal ? "YOUR PERSONAL WORKSPACE" : "YOUR PEOPLE, CONNECTED"}</p>
               <h1>
-                {tab === "Overview"
+                {tab === "My dashboard" ? `Welcome, ${data.user.name}.` : tab === "Overview"
                   ? "A good day starts with your people."
                   : tab}
               </h1>
               <p className="subtitle">
-                {tab === "Overview"
+                {tab === "My dashboard" ? "Your profile, time off, and request updates in one place." : tab === "Overview"
                   ? "Here’s what’s happening across your team today."
                   : tab === "Employees"
                     ? "Meet the people who make it all happen."
@@ -345,6 +349,30 @@ export default function Workspace({
             <p role="alert" className="error">
               {error}
             </p>
+          )}
+          {personal && tab === "My dashboard" && (
+            <>
+              <section className="panel balance-panel">
+                <div className="section-head"><h2>My profile</h2></div>
+                {data.employees.map((employee) => (
+                  <dl className="personal-profile" key={employee.id}>
+                    <div><dt>Name</dt><dd>{employee.name}</dd></div>
+                    <div><dt>Work email</dt><dd>{employee.email}</dd></div>
+                    <div><dt>Job title</dt><dd>{employee.role}</dd></div>
+                    <div><dt>Department</dt><dd>{employee.department}</dd></div>
+                    <div><dt>Joined</dt><dd>{employee.joined}</dd></div>
+                    <div><dt>Status</dt><dd>{employee.status}</dd></div>
+                  </dl>
+                ))}
+              </section>
+              <section className="panel balance-panel">
+                <div className="section-head">
+                  <h2>My request updates</h2>
+                  <button className="text-button" onClick={() => setTab("Leave requests")}>View my requests <ArrowRight size={15} /></button>
+                </div>
+                <p>{pending.length} pending · {data.leaves.filter((l) => l.status === "Approved").length} approved · {data.leaves.filter((l) => l.status === "Declined").length} declined · {data.leaves.filter((l) => l.status === "Cancelled").length} cancelled</p>
+              </section>
+            </>
           )}
           {tab === "Overview" && (
             <>
@@ -528,7 +556,7 @@ export default function Workspace({
               ))}
             </div>
           )}
-          {tab === "Leave requests" && (
+          {(tab === "Leave requests" || (personal && tab === "My dashboard")) && (
             <>
               <section className="panel balance-panel">
                 <div className="section-head">
@@ -582,7 +610,7 @@ export default function Workspace({
                         <th>Leave type</th>
                         <th>Dates</th>
                         <th>Status</th>
-                        <th>Review</th>
+                        <th>{canReview ? "Review" : "Action"}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -614,7 +642,7 @@ export default function Workspace({
                           <td>
                             {l.status === "Pending"
                               ? decisionButtons(l)
-                              : "Reviewed"}
+                              : l.status}
                           </td>
                         </tr>
                       ))}
@@ -944,3 +972,4 @@ export default function Workspace({
     </div>
   );
 }
+
