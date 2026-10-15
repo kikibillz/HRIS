@@ -48,26 +48,6 @@ if (
   }
 }
 db.exec("COMMIT");
-export function snapshot() {
-  return {
-    employees: db
-      .prepare(
-        "SELECT e.*, d.name AS department FROM employees e JOIN departments d ON d.id=e.department_id ORDER BY e.id DESC",
-      )
-      .all(),
-    departments: db
-      .prepare(
-        "SELECT d.*, COUNT(e.id) AS count FROM departments d LEFT JOIN employees e ON e.department_id=d.id GROUP BY d.id",
-      )
-      .all(),
-    leaves: db
-      .prepare(
-        "SELECT l.*, e.name, e.role FROM leaves l JOIN employees e ON e.id=l.employee_id ORDER BY l.id DESC",
-      )
-      .all(),
-  };
-}
-
 // Additive migrations preserve the original prototype records.
 db.exec(`
 CREATE TABLE IF NOT EXISTS accounts (
@@ -85,3 +65,4 @@ CREATE TABLE IF NOT EXISTS leave_events (
  actor_id INTEGER NOT NULL REFERENCES accounts(id), action TEXT NOT NULL, note TEXT NOT NULL,
  created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );`);
+

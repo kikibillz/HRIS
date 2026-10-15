@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { db, snapshot } from "@/lib/db";
+import { db } from "@/lib/db";
 import { currentUser } from "@/lib/auth";
 import { balances } from "@/lib/leave";
 import Workspace from "./workspace";
@@ -7,7 +7,16 @@ export const dynamic = "force-dynamic";
 export default async function Page() {
   const user = await currentUser();
   if (!user) redirect("/login");
-  const data = snapshot();
+  // Derive every read scope from the authenticated session, never client input.
+  const personal = user.access === "employee";
+  const employees = db.prepare(
+    `SELECT e.id,e.name,e.email,e.role,e.department_id,e.joined,e.status,d.name AS department
+     FROM employees e JOIN departments d ON d.id=e.department_id
+     ${personal ? "WHERE e.id=?" : ""} ORDER BY e.id DESC`,
+  ).all(...(personal ? [user.employee_id] : []));
+  const departments = personal ? [] : db.prepare(
+    "SELECT d.id,d.name,COUNT(e.id) AS count FROM departments d LEFT JOIN employees e ON e.department_id=d.id GROUP BY d.id",
+  ).all();
   const leaves = db
     .prepare(
       `SELECT l.*, e.name,e.role,COALESCE(d.reason,'Imported prototype request') AS reason FROM leaves l JOIN employees e ON e.id=l.employee_id LEFT JOIN leave_details d ON d.leave_id=l.id ${user.access === "employee" ? "WHERE l.employee_id=?" : ""} ORDER BY l.id DESC`,
@@ -23,7 +32,8 @@ export default async function Page() {
     <Workspace
       data={JSON.parse(
         JSON.stringify({
-          ...data,
+          employees,
+          departments,
           leaves,
           events,
           user,
@@ -36,3 +46,4 @@ export default async function Page() {
     />
   );
 }
+

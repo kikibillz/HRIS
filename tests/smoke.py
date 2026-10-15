@@ -6,8 +6,8 @@ class Client:
     def __init__(self):
         self.jar=http.cookiejar.CookieJar()
         self.http=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
-    def request(self,path='/',body=None,method=None,origin=BASE):
-        req=urllib.request.Request(BASE+path,data=None if body is None else json.dumps(body).encode(),method=method,headers={'Content-Type':'application/json','Origin':origin})
+    def request(self,path='/',body=None,method=None,origin=BASE,headers=None):
+        req=urllib.request.Request(BASE+path,data=None if body is None else json.dumps(body).encode(),method=method,headers={'Content-Type':'application/json','Origin':origin,**(headers or {})})
         try:
             with self.http.open(req,timeout=5) as r:return r.status,r.read().decode()
         except urllib.error.HTTPError as e:return e.code,e.read().decode()
@@ -48,6 +48,19 @@ with tempfile.TemporaryDirectory(prefix='hris-smoke-') as directory:
             admin.expect(400,'/api/employees',body)
             employee.expect(200,'/api/auth',{'email':'worker@example.test','password':password})
             manager.expect(200,'/api/auth',{'email':'manager@example.test','password':password})
+            # Verify both HTML and the serialized React payload, not just visible UI.
+            for headers in ({}, {'RSC':'1'}):
+                personal=employee.expect(200,headers=headers)
+                assert 'Worker' in personal and 'worker@example.test' in personal
+                if not headers:
+                    assert 'My dashboard' in personal and 'My leave balance' in personal
+                for private in ('Olivia Rhye','olivia@peopleos.demo','manager@example.test','admin@example.test','Quality Assurance','Employee directory','Total employees','Marketing','Finance','Design'):
+                    assert private not in personal, f'Employee payload leaked {private}'
+            assert 'manager@example.test' in manager.expect(200)
+            manager.expect(403,'/api/employees',body)
+            manager.expect(403,'/api/departments',{'name':'Forbidden'})
+            guest.expect(401,'/api/employees',body)
+            guest.expect(401,'/api/departments',{'name':'Forbidden'})
             employee.expect(403,'/api/employees',body)
             employee.expect(403,'/api/departments',{'name':'Forbidden'})
             admin.expect(201,'/api/departments',{'name':'Quality Assurance'})
@@ -66,7 +79,11 @@ with tempfile.TemporaryDirectory(prefix='hris-smoke-') as directory:
             manager.expect(409,'/api/leaves',{'id':3,'status':'Declined','note':'Changed mind'},'PATCH')
             manager.expect(201,'/api/leaves',leave()) # id 4 manager own
             manager.expect(403,'/api/leaves',{'id':4,'status':'Approved','note':''},'PATCH')
-            employee.expect(403,'/api/leaves',{'id':4,'status':'Cancelled','note':''},'PATCH')
+            employee.expect(404,'/api/leaves',{'id':4,'status':'Cancelled','note':''},'PATCH')
+            for request_id in (4, 999999):
+                for status in ('Cancelled','Approved','Declined'):
+                    text=employee.expect(404,'/api/leaves',{'id':request_id,'status':status,'note':'Forbidden'},'PATCH')
+                    assert json.loads(text)=={'error':'Request not found.'}
             manager.expect(200,'/api/leaves',{'id':4,'status':'Cancelled','note':'Plans changed'},'PATCH')
             employee.expect(201,'/api/leaves',leave(monday+datetime.timedelta(days=7))) # id 5
             admin.expect(400,'/api/leaves',{'id':5,'status':'Declined','note':''},'PATCH')
@@ -74,6 +91,7 @@ with tempfile.TemporaryDirectory(prefix='hris-smoke-') as directory:
             employee.expect(201,'/api/leaves',leave(monday+datetime.timedelta(days=7))) # released reservation id 6
             employee.expect(200,'/api/leaves',{'id':6,'status':'Cancelled','note':''},'PATCH')
             _,html=employee.request()
+            assert 'manager@example.test' not in html and 'olivia@peopleos.demo' not in html
             assert 'Enjoy your break' in html and 'Plans changed' not in html, 'Leave history must be scoped to requester'
             with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
                 assert db.execute('SELECT status FROM leaves WHERE id=3').fetchone()[0]=='Approved'
@@ -89,3 +107,4 @@ with tempfile.TemporaryDirectory(prefix='hris-smoke-') as directory:
             log.seek(0);print(log.read()[-6000:]);raise
         finally:
             server.terminate();server.wait(timeout=10)
+

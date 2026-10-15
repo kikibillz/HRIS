@@ -1188,3 +1188,8 @@ footer > span:last-child {
   color: #7d8d72;
   overflow-wrap: anywhere;
 }
+
+
+.personal-profile { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; padding: 0 24px 24px; margin: 0; }
+.personal-profile dt { font-size: 12px; color: #66756c; margin-bottom: 6px; }
+.personal-profile dd { margin: 0; overflow-wrap: anywhere; }

@@ -36,7 +36,12 @@ with tempfile.TemporaryDirectory(prefix='hris-browser-') as directory:
                 page.get_by_label('Work email').fill('review-employee@example.test')
                 page.locator('input[name="password"]').fill(password)
                 page.get_by_role('button',name='Sign in',exact=True).click()
-                expect(page.get_by_role('heading',name='A good day starts with your people.')).to_be_visible()
+                expect(page.get_by_role('heading',name='Welcome, Review Employee.')).to_be_visible()
+                expect(page.get_by_role('heading',name='My profile',exact=True)).to_be_visible()
+                expect(page.get_by_role('button',name='Employees',exact=True)).to_have_count(0)
+                expect(page.get_by_role('button',name='Departments',exact=True)).to_have_count(0)
+                expect(page.get_by_role('button',name='Overview',exact=True)).to_have_count(0)
+                expect(page.get_by_text('review-employee@example.test',exact=True)).to_be_visible()
                 page.get_by_role('button',name='Leave requests',exact=True).click()
                 expect(page.get_by_role('heading',name='My leave balance')).to_be_visible()
                 expect(page.get_by_role('button',name='Add employee',exact=True)).to_have_count(0)
@@ -83,3 +88,4 @@ with tempfile.TemporaryDirectory(prefix='hris-browser-') as directory:
             log.seek(0);print(log.read()[-5000:]);raise
         finally:
             server.terminate();server.wait(timeout=10)
+

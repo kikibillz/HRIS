@@ -118,8 +118,8 @@ export async function PATCH(request: Request) {
     if (!["Approved", "Declined", "Cancelled"].includes(b.status))
       return Response.json({ error: "Invalid decision." }, { status: 400 });
     const leave = db
-      .prepare("SELECT employee_id,status FROM leaves WHERE id=?")
-      .get(Number(b.id)) as { employee_id: number; status: string } | undefined;
+      .prepare(`SELECT employee_id,status FROM leaves WHERE id=? ${user.access === "employee" ? "AND employee_id=?" : ""}`)
+      .get(Number(b.id), ...(user.access === "employee" ? [user.employee_id] : [])) as { employee_id: number; status: string } | undefined;
     if (!leave)
       return Response.json({ error: "Request not found." }, { status: 404 });
     if (
@@ -173,3 +173,4 @@ export async function PATCH(request: Request) {
     );
   }
 }
+
