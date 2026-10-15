@@ -1,31 +1,59 @@
 # PeopleOS HRIS
 
-A local development HR workspace built with Next.js, React, TypeScript, and SQLite. Includes a live dashboard, searchable employee directory, employee creation, department creation, leave submission, and approval/decline workflows. The responsive interface uses illustrative sample people; no real employee records are included.
+A working HR prototype built with free, open-source tools: Next.js, React, TypeScript, and local SQLite. No paid APIs, external database accounts, or subscriptions are required. It includes a responsive dashboard, employee directory, departments, sign-in, and a complete first leave-management workflow.
 
-## Development
+## Review the app in your browser
 
-Requires Node.js 24 (uses built-in `node:sqlite`) and npm 11.
+1. On this repository's GitHub page, select **Code → Codespaces → Create codespace on main**.
+2. Wait for setup to install dependencies and start the development server.
+3. In the **Ports** panel, open port **3000** in your browser. Keep its visibility **Private**.
+4. Create your first administrator account on the setup screen, using a unique password of at least 12 characters. Setup closes after that account exists.
+5. Choose **Employees → Add employee** to create employee and manager accounts with passwords you choose. Share passwords privately; do not use real staff data yet.
+6. Open **Leave requests**. Submit a request as an employee, then sign in as a manager or administrator to review it. Expand a request in **Request history** to see its reason, decisions, reviewer, and timestamps.
+
+GitHub Codespaces has account-dependent free quotas. Check your remaining quota and spending settings, and stop the Codespace when finished. This configuration uses the standard default machine size and requires no paid extensions. A Codespace cannot be promised to be free for every account.
+
+Cloud coding sessions and Codespaces are separate copies of the repository. After a new update is pushed here, run `git pull origin main` in the Codespaces terminal; the running development server will reload the changes. Preserve your local edits before pulling. Changes edited directly inside the Codespace appear through live reload. Creating the Codespace and opening its authenticated preview must be done from your GitHub account; it has not been launched by this coding environment.
+
+## Local development
+
+Requires Node.js 24 and npm 11. SQLite is provided by Node itself.
 
 ```sh
 npm ci
-npm run dev
+HRIS_ALLOW_SETUP=1 npm run dev
 ```
 
-The app listens on port 3000. SQLite is created and seeded automatically at `data/hris.sqlite`; the directory is ignored by Git. Set `HRIS_DATA_DIR` to change storage location. No external services or credentials are required. Preserve the database to retain records; remove it only when you intentionally want to reset sample data.
+`HRIS_ALLOW_SETUP=1` permits creation of the first administrator only when no accounts exist. It is enabled by the private Codespaces preview command. Initialize your account before exposing a server publicly, then restart without this flag. A normal server without an administrator or this flag shows sign-in but does not permit public account creation.
+
+The default port is 3000. SQLite is created and seeded automatically at `data/hris.sqlite`; this directory is ignored by Git. `HRIS_DATA_DIR` selects a different local storage directory. Existing prototype records are preserved by additive schema migrations. Preserve the database to retain your accounts, requests, and history. Do not delete it unless intentionally resetting the whole sample workspace.
 
 ```sh
-npm run typecheck
 npm run build
+npm run typecheck
 npm test
 npm start
 ```
 
-## Scope
+`npm test` requires Python 3. It starts a production server on port 3101 with its own temporary database and checks login, authorization, date validation, balances, overlaps, decisions, cancellation, and audit history. Run a build first. It never uses your working database.
 
-This is a functional development MVP, without authentication or role permissions. All app users can view employee details and decide leave requests. Use only sample data until authentication, authorization, audit logging, privacy controls, and deployment security have been implemented. Payroll, attendance, recruiting, and integrations are future work. The UI marks its sample dataset explicitly.
+Optional real-browser tests require Python Playwright (`pip install playwright`) and system Chromium. Set `CHROMIUM_PATH` if it is not at `/usr/bin/chromium`, then run `python3 tests/browser.py` after a build. They use a separate temporary database and port 3102. Screenshots go to `/tmp/hris-review/`.
 
-API endpoints: POST `/api/employees`, POST `/api/departments`, POST `/api/leaves`, PATCH `/api/leaves`. SQLite constraints and server-side validation protect references, duplicate emails, and leave decisions.
+## Leave workflow and current policy
 
-`npm test` starts a production server on port 3101 with a temporary database, tests rendering and API workflows, and removes its test data afterward. Run a build first.
+- Employees submit and cancel their own pending requests and see only their own leave reasons and history. The employee directory is visible to all signed-in staff.
+- Managers can review other employees' requests across the workspace. Administrators also manage employees and departments and can submit leave on behalf of an employee. Nobody can approve or decline their own request.
+- Annual leave: 20 days; sick leave: 10 days; personal leave: 5 days per calendar year. These are **prototype allowances**, not claims about statutory entitlements.
+- Counts use Monday–Friday, excluding weekends. Public holidays, carry-over, prorating, and custom policies are not implemented.
+- Pending requests reserve days; approved requests consume them. Declining or cancelling releases reserved days. Only pending requests can change state.
+- Dates must be today or later, in one calendar year, this year or next. Requests cannot overlap other pending or approved requests.
+- Submission and decisions record the actor and time. Declining requires a reason. Old prototype requests are identified as imports without invented history.
+- Passwords are salted and hashed with scrypt. Session cookies are HttpOnly, SameSite=Lax, expire after eight hours, and use Secure when requests originate from HTTPS. Sign-out revokes the session. Mutations validate the request origin; repeated failed sign-ins are limited per email.
 
-The code and required tools are free and open source. There are no paid API dependencies or subscriptions. Public hosting and domain costs depend on the provider you choose.
+## What comes next
+
+This is a functioning development prototype, not a production HR service. Before real staff records or public rollout, implement password changes and recovery, invitations, assigned manager scopes, custom leave policies, account deactivation, backups, stronger abuse controls, privacy controls, and a security review. Payroll, attendance, recruiting, document storage, and integrations are future modules.
+
+The app is single-workspace. Managers currently review across that workspace; teams do not yet have assigned approvers. Sample people use fictional `.demo` email addresses and have no seeded login passwords. Only accounts you explicitly create can sign in.
+
+API: POST/DELETE `/api/auth`, POST `/api/employees`, POST `/api/departments`, POST/PATCH `/api/leaves`. All workforce mutations require authentication and enforce roles server-side.

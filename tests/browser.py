@@ -1,0 +1,85 @@
+"""Optional browser review: pip install playwright; requires system Chromium."""
+import datetime, os, secrets, subprocess, tempfile, time, urllib.request
+from playwright.sync_api import sync_playwright, expect
+password=secrets.token_urlsafe(24)
+base='http://127.0.0.1:3102'
+with tempfile.TemporaryDirectory(prefix='hris-browser-') as directory:
+    with open(os.path.join(directory,'server.log'),'w+') as log:
+        server=subprocess.Popen(['node','node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port','3102'],env={**os.environ,'HRIS_DATA_DIR':directory,'HRIS_ALLOW_SETUP':'1'},stdout=log,stderr=log)
+        try:
+            for _ in range(60):
+                try:
+                    if urllib.request.urlopen(base+'/login',timeout=3).status==200:break
+                except OSError:pass
+                time.sleep(.25)
+            else:raise AssertionError('Server unavailable')
+            with sync_playwright() as p:
+                browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH','/usr/bin/chromium'),args=['--no-sandbox'])
+                page=browser.new_page(viewport={'width':1440,'height':1000})
+                errors=[]
+                page.on('pageerror',lambda e:errors.append(str(e)))
+                page.goto(base)
+                page.get_by_label('Your name').fill('Review Admin')
+                page.get_by_label('Work email').fill('review-admin@example.test')
+                page.locator('input[name="password"]').fill(password)
+                page.get_by_role('button',name='Create workspace').click()
+                expect(page.get_by_role('heading',name='A good day starts with your people.')).to_be_visible()
+                page.get_by_role('button',name='Add employee',exact=True).click()
+                page.get_by_label('Full name').fill('Review Employee')
+                page.get_by_label('Work email').fill('review-employee@example.test')
+                page.get_by_label('Job title').fill('Product Designer')
+                page.get_by_label('Initial password').fill(password)
+                page.get_by_role('dialog').get_by_role('button',name='Add employee').click()
+                expect(page.get_by_role('dialog')).to_have_count(0)
+                page.get_by_role('button',name='Sign out').click()
+                expect(page.get_by_role('heading',name='Welcome back.')).to_be_visible()
+                page.get_by_label('Work email').fill('review-employee@example.test')
+                page.locator('input[name="password"]').fill(password)
+                page.get_by_role('button',name='Sign in',exact=True).click()
+                expect(page.get_by_role('heading',name='A good day starts with your people.')).to_be_visible()
+                page.get_by_role('button',name='Leave requests',exact=True).click()
+                expect(page.get_by_role('heading',name='My leave balance')).to_be_visible()
+                expect(page.get_by_role('button',name='Add employee',exact=True)).to_have_count(0)
+                page.get_by_role('button',name='Request leave',exact=True).click()
+                date=datetime.date(datetime.date.today().year+1,1,4)
+                while date.weekday()!=0:date+=datetime.timedelta(days=1)
+                page.get_by_label('Start date').fill(date.isoformat())
+                page.get_by_label('End date').fill((date+datetime.timedelta(days=2)).isoformat())
+                page.get_by_label('Reason',exact=True).fill('Browser review holiday')
+                expect(page.get_by_text('3 working days requested.',exact=False)).to_be_visible()
+                page.get_by_role('button',name='Submit request').click()
+                expect(page.get_by_role('dialog')).to_have_count(0)
+                page.get_by_label('Balance year').select_option(str(date.year))
+                annual=page.locator('.balance-grid > div').filter(has_text='Annual leave')
+                expect(annual).to_contain_text('17')
+                expect(annual).to_contain_text('3 pending')
+                page.get_by_role('button',name='Sign out').click()
+                expect(page.get_by_role('heading',name='Welcome back.')).to_be_visible()
+                page.get_by_label('Work email').fill('review-admin@example.test')
+                page.locator('input[name="password"]').fill(password)
+                page.get_by_role('button',name='Sign in',exact=True).click()
+                expect(page.get_by_role('heading',name='A good day starts with your people.')).to_be_visible()
+                page.get_by_role('button',name='Leave requests',exact=False).first.click()
+                page.get_by_role('button',name='Approve Review Employee',exact=True).click()
+                page.get_by_role('dialog').get_by_role('button',name='Confirm approved').click()
+                expect(page.get_by_role('dialog')).to_have_count(0)
+                item=page.locator('details').filter(has_text='Review Employee')
+                item.locator('summary').click()
+                expect(item.get_by_text('Review Admin',exact=False)).to_be_visible()
+                os.makedirs('/tmp/hris-review',exist_ok=True)
+                page.screenshot(path='/tmp/hris-review/leave-desktop.png',full_page=True)
+                page.set_viewport_size({'width':390,'height':844})
+                expect(page.get_by_role('heading',name='Leave requests',exact=True)).to_be_visible()
+                assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Page overflows mobile viewport'
+                page.wait_for_function("document.querySelector('.sidebar').getBoundingClientRect().right <= 1")
+                page.screenshot(path='/tmp/hris-review/leave-mobile.png',full_page=True,animations='disabled')
+                page.get_by_role('button',name='Toggle navigation').click()
+                page.get_by_role('button',name='Employees',exact=True).click()
+                expect(page.get_by_role('heading',name='Employees',exact=True)).to_be_visible()
+                assert not errors,errors
+                browser.close()
+                print('PASS: browser setup, login, employee creation, leave submission, approval history, desktop/mobile layout; no browser errors.')
+        except Exception:
+            log.seek(0);print(log.read()[-5000:]);raise
+        finally:
+            server.terminate();server.wait(timeout=10)

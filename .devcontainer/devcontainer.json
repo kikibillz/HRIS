@@ -1,0 +1,11 @@
+{
+  "name": "PeopleOS live review",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:24-bookworm",
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": { "label": "PeopleOS preview", "onAutoForward": "openBrowser" }
+  },
+  "postCreateCommand": "npm ci --cache /tmp/hris-npm-cache",
+  "postStartCommand": "mkdir -p /tmp/hris-preview && (HRIS_ALLOW_SETUP=1 npm run dev -- --port 3000 > /tmp/hris-preview/server.log 2>&1 &)",
+  "remoteUser": "node"
+}
