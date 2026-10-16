@@ -102,3 +102,5 @@ Payments use bank exports and manual reconciliation. Released payroll supports p
 Released payroll now generates immutable generic bank and statutory preparation ZIP packs with readiness checks, configurable column mappings, reviewed export-only identifiers, exact NGN formatting and manifest checksums. Admin-only pack history preserves past exports after later reconciliation changes. These are preparation formats requiring external portal review; they do not submit filings or transfer money.
 
 Backups & recovery now provides encrypted company-only archive downloads and read-only content comparisons. The operator CLI creates consistent, encrypted full SQLite snapshots and prepares verified recovery copies in new directories without replacing live data. Recovered copies revoke sessions/unused links while preserving account passwords and business records. See `docs/BACKUP-RECOVERY.md`; backups are manual and must be copied offsite.
+
+Production containers, health checks, persistent storage, HTTPS proxy setup and CI are documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

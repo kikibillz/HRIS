@@ -1,0 +1,19 @@
+services:
+  hris:
+    build: .
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      HRIS_PUBLIC_ORIGIN: ${HRIS_PUBLIC_ORIGIN:?Set the public HTTPS origin}
+    volumes:
+      - hris-data:/var/lib/hris
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache:uid=1000,gid=1000
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+volumes:
+  hris-data:

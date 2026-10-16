@@ -1,0 +1,35 @@
+name: Verify HRIS
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+      - run: node --experimental-strip-types tests/readiness.mjs
+      - run: pip install playwright==1.62.0 openpyxl==3.1.5
+      - run: python -m playwright install --with-deps chromium
+      - name: Browser and workbook checks
+        run: |
+          export CHROMIUM_PATH=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
+          python3 tests/browser.py
+          python3 tests/accounts-browser.py
+          python3 tests/platform-browser.py
+          python3 tests/payroll-workbook.py
+      - run: docker build -t hris:ci .
+      - run: python3 tests/container.py hris:ci

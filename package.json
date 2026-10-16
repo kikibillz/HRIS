@@ -11,7 +11,8 @@
     "backup:create": "node scripts/backup.mjs create",
     "backup:preview": "node scripts/backup.mjs preview",
     "backup:restore": "node scripts/backup.mjs restore",
-    "preview": "bash scripts/start-preview.sh"
+    "preview": "bash scripts/start-preview.sh",
+    "start:production": "node scripts/start-production.mjs"
   },
   "dependencies": {
     "ai": "^7.0.142",

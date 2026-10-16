@@ -50,6 +50,9 @@ export async function currentUser(): Promise<User | null> {
 export function sameOrigin(request: Request) {
   const origin = request.headers.get("origin");
   if (!origin) return false;
+  if (process.env.HRIS_PUBLIC_ORIGIN)
+    return origin === process.env.HRIS_PUBLIC_ORIGIN;
+  if (process.env.HRIS_DEPLOYMENT === "production") return false;
   try {
     const parsed = new URL(origin);
     const preview = previewHostname();
@@ -85,5 +88,5 @@ export function sessionFor(accountId: number, request: Request) {
   db.prepare(
     "INSERT INTO sessions(token_hash,account_id,expires) VALUES (?,?,?)",
   ).run(digest(token), accountId, Date.now() + 8 * 60 * 60 * 1000);
-  return `${cookieName}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800${(request.headers.get("origin") || request.url).startsWith("https:") ? "; Secure" : ""}`;
+  return `${cookieName}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800${process.env.HRIS_DEPLOYMENT === "production" || (request.headers.get("origin") || request.url).startsWith("https:") ? "; Secure" : ""}`;
 }

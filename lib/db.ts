@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS employees (id INTEGER PRIMARY KEY, name TEXT NOT NULL
 CREATE TABLE IF NOT EXISTS leaves (id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id), type TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'Pending');`);
 db.exec("BEGIN IMMEDIATE");
 if (
+  process.env.HRIS_DEPLOYMENT !== "production" &&
   !(db.prepare("SELECT COUNT(*) AS n FROM departments").get() as { n: number })
     .n
 ) {
