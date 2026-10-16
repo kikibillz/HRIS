@@ -1,5 +1,5 @@
 // All monetary inputs/outputs are integer kobo; percent rates use basis points.
-export const payrollVersion = "NG-2026-fixed-monthly-v1";
+export const payrollVersion = "NG-2026-reviewed-period-v2";
 export const sourceUrls = [
   "https://www.nrs.gov.ng/uploads/NIGERIA_TAX_ACT_2025_ef6bb812a5.pdf",
   "https://www.nipc.gov.ng/wp-content/uploads/2025/07/Nigeria-Tax-Act-2025.pdf",
@@ -158,6 +158,156 @@ export function calculatePayroll(
     tax_id: s.tax_id,
     pension_id: s.pension_id,
     nhf_id: s.nhf_id,
+    version: payrollVersion,
+  };
+}
+
+export type PeriodAdjustment = {
+  bonus: number;
+  pensionable_bonus: number;
+  one_off_deduction: number;
+  reviewed_paye: number | null;
+  review_note: string;
+};
+export function parseAdjustment(b: Record<string, unknown>): PeriodAdjustment {
+  const bonus = money(b.bonus),
+    pensionable_bonus = money(b.pensionable_bonus);
+  if (pensionable_bonus > bonus)
+    throw Error("Pensionable bonus cannot exceed total bonus.");
+  const review_note = String(b.review_note ?? "").trim();
+  if (review_note.length > 1000)
+    throw Error("Review note must be at most 1,000 characters.");
+  const reviewed_paye =
+    b.reviewed_paye === null ||
+    b.reviewed_paye === undefined ||
+    b.reviewed_paye === ""
+      ? null
+      : money(b.reviewed_paye);
+  if (reviewed_paye !== null && !review_note)
+    throw Error(
+      "A PAYE override requires a review note and calculation reference.",
+    );
+  return {
+    bonus,
+    pensionable_bonus,
+    one_off_deduction: money(b.one_off_deduction),
+    reviewed_paye,
+    review_note,
+  };
+}
+export function periodDays(period: string, joined: string) {
+  if (!/^2026-(0[1-9]|1[0-2])$/.test(period))
+    throw Error("This rule version supports 2026 monthly periods only.");
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(joined) ||
+    !Number.isFinite(Date.parse(joined)) ||
+    new Date(joined).toISOString().slice(0, 10) !== joined
+  )
+    throw Error("Invalid employment start date.");
+  const days = new Date(
+    Date.UTC(2026, Number(period.slice(5)), 0),
+  ).getUTCDate();
+  const start = period + "-01",
+    end = period + "-" + String(days).padStart(2, "0");
+  const paid_days =
+    joined > end
+      ? 0
+      : joined <= start
+        ? days
+        : days - Number(joined.slice(8)) + 1;
+  return {
+    period,
+    joined,
+    days,
+    paid_days,
+    basis:
+      "Inclusive calendar days; each recurring earning component rounded separately",
+  };
+}
+export function calculatePeriodPayroll(
+  s: Salary,
+  policy: PayrollPolicy,
+  period: string,
+  joined: string,
+  adjustment: PeriodAdjustment = parseAdjustment({}),
+) {
+  const proration = periodDays(period, joined);
+  if (!proration.paid_days)
+    throw Error("Employee starts after this payroll period.");
+  if (
+    (proration.paid_days < proration.days || adjustment.bonus > 0) &&
+    adjustment.reviewed_paye === null
+  )
+    throw Error(
+      "Bonuses and partial months require a reviewed PAYE amount and calculation reference in period adjustments.",
+    );
+  const earnings = Object.fromEntries(
+    (["basic", "housing", "transport", "other"] as const).map((k) => [
+      k,
+      rounded(
+        BigInt(s[k]) * BigInt(proration.paid_days),
+        BigInt(proration.days),
+      ),
+    ]),
+  ) as Record<"basic" | "housing" | "transport" | "other", number>;
+  // Only ordinary full-month pay uses the fixed-month annualisation. Variable periods
+  // use the supplied reviewed PAYE, never an annualised one-off bonus estimate.
+  const fixed =
+    adjustment.reviewed_paye === null ? calculatePayroll(s, policy) : null;
+  const gross =
+    Object.values(earnings).reduce((a, b) => a + b, 0) + adjustment.bonus;
+  const pension_base =
+    policy.pension_base === "gross"
+      ? gross
+      : earnings.basic +
+        earnings.housing +
+        earnings.transport +
+        adjustment.pensionable_bonus;
+  const pension = s.pension
+    ? percent(pension_base, policy.employee_pension_bp)
+    : 0;
+  const employer_pension = s.pension
+    ? percent(pension_base, policy.employer_pension_bp)
+    : 0;
+  const nhf = s.nhf
+    ? percent(policy.nhf_base === "basic" ? earnings.basic : gross, 250)
+    : 0;
+  const paye = adjustment.reviewed_paye ?? fixed!.paye;
+  const other_deductions = s.other_deductions + adjustment.one_off_deduction;
+  const total_deductions = paye + pension + nhf + s.nhis + other_deductions;
+  const net = gross - total_deductions;
+  if (net < 0) throw Error("Deductions exceed gross pay.");
+  const employer_ecs = percent(gross, policy.employer_ecs_bp),
+    employer_itf = percent(gross, policy.employer_itf_bp);
+  return {
+    ...fixed,
+    gross,
+    pension_base,
+    pension,
+    employer_pension,
+    nhf,
+    nhis: s.nhis,
+    paye,
+    other_deductions,
+    total_deductions,
+    net,
+    employer_ecs,
+    employer_itf,
+    employer_cost: gross + employer_pension + employer_ecs + employer_itf,
+    earnings: { ...earnings, bonus: adjustment.bonus },
+    bank: s.bank,
+    bank_account: s.bank_account,
+    tax_id: s.tax_id,
+    pension_id: s.pension_id,
+    nhf_id: s.nhf_id,
+    proration,
+    adjustment,
+    salary_snapshot: s,
+    policy_snapshot: policy,
+    tax_method:
+      adjustment.reviewed_paye === null
+        ? "Fixed monthly annualisation"
+        : "Reviewed PAYE supplied by payroll administrator; cumulative calculation outside engine",
     version: payrollVersion,
   };
 }

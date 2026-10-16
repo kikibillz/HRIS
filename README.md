@@ -1,6 +1,6 @@
 # PeopleOS HRIS
 
-A working HR suite built with Next.js, React, TypeScript, and local SQLite. It includes company signup and isolation, staff imports, Nigeria 2026 fixed-monthly payroll and payslips, attendance, documents, recruiting, goals/reviews/360 feedback, learning, onboarding, letters, notifications, analytics, and a company policy assistant. Existing employee, leave, manager approval, invitation, password, and recovery workflows are preserved. Core workflows and policy search run locally; generated AI answers require a configured AI Gateway account.
+A working HR suite built with Next.js, React, TypeScript, and local SQLite. It includes company signup and isolation, staff imports, Nigeria 2026 payroll and payslips with reviewed period adjustments, attendance, documents, recruiting, goals/reviews/360 feedback, learning, onboarding, letters, notifications, analytics, and a company policy assistant. Existing employee, leave, manager approval, invitation, password, and recovery workflows are preserved. Core workflows and policy search run locally; generated AI answers require a configured AI Gateway account.
 
 ## HR operations and first payroll
 
@@ -90,3 +90,5 @@ The operator command issues a one-hour reset link, records the action, and prese
 `npm test` also runs isolated account lifecycle tests on port 3103. Optional account browser checks: `python3 tests/accounts-browser.py` (port 3104). Both use temporary databases.
 
 API: POST/DELETE `/api/auth`, POST/PATCH `/api/employees`, POST `/api/departments`, POST/PATCH `/api/leaves`, POST `/api/password`, POST/DELETE `/api/account-links`, POST `/api/account-links/redeem`. All workforce mutations require authentication and enforce roles server-side.
+
+Period payroll now supports calendar-day starter proration, bonuses and one-off deductions. Bonuses/partial months require an explicit reviewed PAYE input and calculation reference; automatic cumulative PAYE is not implemented. See `docs/HR-SUITE.md` and the workbook’s Period review sheet.

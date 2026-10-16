@@ -51,8 +51,30 @@ assert cases[3]['expected']['paye']==2750000
 assert cases[8]['expected']['paye']==3596000 and cases[8]['expected']['net']==28104000
 assert cases[7]['expected']['paye']==107750000
 Path('public/payroll-reference-cases.json').write_text(json.dumps(cases,indent=2)+'\n')
+# Variable periods deliberately take reviewed PAYE rather than estimating cumulative tax.
+period_inputs=[
+ ('October starter and bonus','2026-10','2026-10-16',dict(basic='310000',pension=False),dict(bonus='50000',one_off_deduction='5000',reviewed_paye='12000',review_note='Engineering fixture: supplied PAYE; not accountant signoff')),
+ ('Starter pensionable bonus NHF','2026-10','2026-10-16',dict(basic='310000',nhf=True),dict(bonus='50000',pensionable_bonus='20000',one_off_deduction='5000',reviewed_paye='8000',review_note='Engineering fixture: supplied PAYE')),
+ ('February half month','2026-02','2026-02-15',dict(basic='200000'),dict(reviewed_paye='3000',review_note='Engineering fixture: supplied PAYE')),
+ ('Full month pensionable bonus','2026-10','2026-01-01',dict(basic='200000'),dict(bonus='100000',pensionable_bonus='100000',reviewed_paye='25000',review_note='Engineering fixture: supplied PAYE')),
+ ('Partial minimum wage explicit zero','2026-10','2026-10-31',dict(basic='70000',pension=False),dict(reviewed_paye='0',review_note='Engineering fixture: supplied zero PAYE')),
+ ('Component rounding','2026-10','2026-10-17',dict(basic='123456.78',housing='23456.79',transport='3456.78',other='111.11',nhf=True,nhis='123.45',other_deductions='11.11'),dict(bonus='500.01',pensionable_bonus='100.01',one_off_deduction='2.22',reviewed_paye='1500.01',review_note='Engineering fixture: rounding')),
+]
+period_cases=[]
+import calendar
+for name,period,joined,raw,a in period_inputs:
+ days=calendar.monthrange(2026,int(period[5:]))[1];paid=days if joined[:7]<period else days-int(joined[8:])+1
+ e={k:round_money(D(raw.get(k,'0'))*paid/days) for k in ['basic','housing','transport','other']}
+ bonus=D(a.get('bonus','0'));gross=sum(e.values())+bonus;base=sum(e[k] for k in ['basic','housing','transport'])+D(a.get('pensionable_bonus','0'))
+ pension=round_money(base*D('.08')) if raw.get('pension',True) else D(0);employer=round_money(base*D('.10')) if raw.get('pension',True) else D(0)
+ nhf=round_money(e['basic']*D('.025')) if raw.get('nhf',False) else D(0);nhis=D(raw.get('nhis','0'));paye=D(a['reviewed_paye']);deduct=pension+nhf+nhis+paye+D(raw.get('other_deductions','0'))+D(a.get('one_off_deduction','0'))
+ expected={k:kobo(v) for k,v in dict(gross=gross,paye=paye,pension=pension,employer_pension=employer,nhf=nhf,nhis=nhis,total_deductions=deduct,net=gross-deduct,employer_ecs=round_money(gross*D('.01')),employer_itf=D(0)).items()}
+ period_cases.append(dict(name=name,period=period,joined=joined,input=raw,adjustment=a,expected=expected,paid_days=paid,days=days))
+assert period_cases[0]['expected']['net']==19300000
+assert period_cases[1]['expected']['net']==17860000
+Path('public/payroll-period-cases.json').write_text(json.dumps(period_cases,indent=2)+'\n')
 w=Workbook();readme=w.active;readme.title='Read me'
-notes=[['Nigeria 2026 payroll calculation review'],['Status','Engineering reference cases — NOT accountant-approved'],['Scope','Fixed, recurring monthly Nigerian employment pay; 2026 periods only.'],['Instructions','Change blue inputs on Calculation. Review assumptions and evidence. Reconcile every case with your accountant.'],['Rounding','Positive half-up to two decimal naira places (integer kobo). Monthly PAYE rounds the unrounded annual band tax divided by 12.'],['Pension','8% employee / 10% employer on basic + housing + transport; confirm contractual pensionable emoluments and applicability.'],['NHF','Opt-in/applicability per employee. Default 2.5% basic. Official guidance differs on basis; confirm before approving.'],['PAYE reliefs','Pension, NHF, NHIS, declared rent relief (20%, capped 500,000), and approved other eligible annual reliefs.'],['Minimum wage','Monthly gross at or below 70,000 treated as PAYE-exempt; confirm the employee’s legal eligibility.'],['Employer levies','ECS default 1% gross. ITF is disabled until applicability is confirmed; normally 1% annual payroll for eligible employers.'],['Not supported','Bonuses, variable pay, arrears, cumulative/YTD PAYE adjustments, mid-month prorating, foreign currency or nonresident cases.'],['Sources','See Sources sheet. Tax legislation and accountant signoff control over this workbook.'],['Independent expected values','Reference sheet uses Python Decimal with cumulative thresholds; Calculation uses editable Excel marginal-band formulas.'],['Signoff','Accountant: __________________ Date: __________ Findings: __________________'],['Launch target','Company signup → first approved payroll <=24 hours. This is measured in app analytics; it is not a guarantee.']]
+notes=[['Nigeria 2026 payroll calculation review'],['Status','Engineering reference cases — NOT accountant-approved'],['Scope','Recurring monthly earnings plus reviewed period adjustments; Nigeria 2026 only.'],['Instructions','Change blue inputs on Calculation. Review assumptions and evidence. Reconcile every case with your accountant.'],['Rounding','Positive half-up to two decimal naira places (integer kobo). Monthly PAYE rounds the unrounded annual band tax divided by 12.'],['Pension','8% employee / 10% employer on basic + housing + transport; confirm contractual pensionable emoluments and applicability.'],['NHF','Opt-in/applicability per employee. Default 2.5% basic. Official guidance differs on basis; confirm before approving.'],['PAYE reliefs','Pension, NHF, NHIS, declared rent relief (20%, capped 500,000), and approved other eligible annual reliefs.'],['Minimum wage','Monthly gross at or below 70,000 treated as PAYE-exempt; confirm the employee’s legal eligibility.'],['Employer levies','ECS default 1% gross. ITF is disabled until applicability is confirmed; normally 1% annual payroll for eligible employers.'],['Period adjustments','Calendar-day starters, bonuses and one-off deductions. Period review sheet uses supplied reviewed PAYE, not a cumulative tax estimate. NHIS and recurring after-tax deductions are not prorated.'],['Not supported','Automatic cumulative/YTD PAYE, arrears, leaver calculations, unpaid absence, foreign currency or nonresident cases.'],['Sources','See Sources sheet. Tax legislation and accountant signoff control over this workbook.'],['Independent expected values','Reference sheet uses Python Decimal with cumulative thresholds; Calculation uses editable Excel marginal-band formulas.'],['Signoff','Accountant: __________________ Date: __________ Findings: __________________'],['Launch target','Company signup → first approved payroll <=24 hours. This is measured in app analytics; it is not a guarantee.']]
 for r in notes:readme.append(r)
 readme.column_dimensions['A'].width=28;readme.column_dimensions['B'].width=112
 for row in readme:
@@ -92,6 +114,24 @@ for row in [['Source','URL','Use / review note'],['Nigeria Tax Act 2025','https:
 for n,width in [('A',32),('B',90),('C',85)]:sources.column_dimensions[n].width=width
 for row in sources:
  for c in row:c.alignment=Alignment(wrap_text=True,vertical='top')
+period_sheet=w.create_sheet('Period review')
+period_sheet.append(['Case','Calendar days','Paid days','Basic monthly','Housing monthly','Transport monthly','Other monthly','Bonus','Pensionable bonus BHT','Reviewed PAYE INPUT','NHIS fixed','Recurring deductions fixed','One-off deduction','Pension?','NHF?','Gross','Employee pension','Employer pension','NHF','Total deductions','Net','Employer ECS','Employer ITF','Expected net','Net delta'])
+for i,c in enumerate(period_cases,2):
+ raw=c['input'];a=c['adjustment']
+ period_sheet.append([c['name'],c['days'],c['paid_days']]+[float(D(raw.get(k,'0'))) for k in ['basic','housing','transport','other']]+[float(D(a.get(k,'0'))) for k in ['bonus','pensionable_bonus','reviewed_paye']]+[float(D(raw.get(k,'0'))) for k in ['nhis','other_deductions']]+[float(D(a.get('one_off_deduction','0')))]+['Yes' if raw.get('pension',True) else 'No','Yes' if raw.get('nhf',False) else 'No'])
+ components=[f'ROUND({col}{i}*C{i}/B{i},2)' for col in 'DEFG']
+ gross='+'.join(components)+f'+H{i}'
+ bht='+'.join(components[:3])+f'+I{i}'
+ formulas={'P':f'={gross}','Q':f'=IF(N{i}="Yes",ROUND(IF(Settings!$B$11="gross",P{i},{bht})*Settings!$B$2,2),0)','R':f'=IF(N{i}="Yes",ROUND(IF(Settings!$B$11="gross",P{i},{bht})*Settings!$B$3,2),0)','S':f'=IF(O{i}="Yes",ROUND(IF(Settings!$B$5="gross",P{i},{components[0]})*Settings!$B$4,2),0)','T':f'=SUM(J{i}:M{i})+Q{i}+S{i}','U':f'=P{i}-T{i}','V':f'=ROUND(P{i}*Settings!$B$9,2)','W':f'=ROUND(P{i}*Settings!$B$10,2)','Y':f'=U{i}-X{i}'}
+ for col,formula in formulas.items():period_sheet[f'{col}{i}']=formula
+ period_sheet[f'X{i}']=c['expected']['net']/100
+ for cell in period_sheet[i][1:]:
+  if cell.column not in (2,3,14,15):cell.number_format='#,##0.00'
+ for cell in period_sheet[i][1:15]:cell.font=Font(color='1565C0');cell.fill=PatternFill('solid',fgColor='EDF5FF')
+period_sheet.column_dimensions['A'].width=38
+for col in range(2,26):period_sheet.column_dimensions[__import__('openpyxl').utils.get_column_letter(col)].width=23
+period_sheet.auto_filter.ref=period_sheet.dimensions
+period_sheet.row_dimensions[1].height=45
 for sheet in w:
  sheet.freeze_panes='A2'
  for cell in sheet[1]:cell.fill=PatternFill('solid',fgColor='245B45');cell.font=Font(color='FFFFFF',bold=True);cell.alignment=Alignment(wrap_text=True)

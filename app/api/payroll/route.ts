@@ -5,6 +5,10 @@ import {
   defaultPolicy,
   parseSalary,
   calculatePayroll,
+  calculatePeriodPayroll,
+  parseAdjustment,
+  periodDays,
+  type PeriodAdjustment,
   payrollVersion,
   sourceUrls,
   type PayrollPolicy,
@@ -47,6 +51,14 @@ export async function GET() {
       runs,
       items,
       salaries,
+      adjustments:
+        user.access === "admin"
+          ? db
+              .prepare(
+                "SELECT * FROM payroll_adjustments WHERE company_id=? ORDER BY period DESC,employee_id",
+              )
+              .all(user.company_id)
+          : [],
       policy: saved ? JSON.parse(saved.payroll_policy) : defaultPolicy,
       version: payrollVersion,
       sources: sourceUrls,
@@ -70,6 +82,54 @@ export async function POST(request: Request) {
         "INSERT INTO compensation(employee_id,data) VALUES (?,?) ON CONFLICT(employee_id) DO UPDATE SET data=excluded.data,updated=strftime('%Y-%m-%dT%H:%M:%fZ','now')",
       ).run(b.employee_id, JSON.stringify(salary));
       audit(user, "Compensation updated", String(b.employee_id));
+      return Response.json({ ok: true });
+    }
+    if (b.action === "adjustment" || b.action === "clear_adjustment") {
+      if (
+        !Number.isSafeInteger(b.employee_id) ||
+        !employeeInCompany(b.employee_id, user.company_id)
+      )
+        return Response.json({ error: "Employee not found." }, { status: 404 });
+      periodDays(b.period, "2026-01-01");
+      const adjustment = parseAdjustment(b);
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        if (
+          db
+            .prepare(
+              "SELECT id FROM payroll_runs WHERE company_id=? AND period=?",
+            )
+            .get(user.company_id, b.period)
+        )
+          throw Error(
+            "Period inputs are locked while a payroll run exists. Discard its draft before changing inputs; approved payroll is final.",
+          );
+        if (b.action === "clear_adjustment")
+          db.prepare(
+            "DELETE FROM payroll_adjustments WHERE company_id=? AND employee_id=? AND period=?",
+          ).run(user.company_id, b.employee_id, b.period);
+        else
+          db.prepare(
+            "INSERT INTO payroll_adjustments(company_id,employee_id,period,data,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(company_id,employee_id,period) DO UPDATE SET data=excluded.data,updated_by=excluded.updated_by,updated=strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+          ).run(
+            user.company_id,
+            b.employee_id,
+            b.period,
+            JSON.stringify(adjustment),
+            user.id,
+          );
+        audit(
+          user,
+          b.action === "clear_adjustment"
+            ? "Payroll period inputs cleared"
+            : "Payroll period inputs updated",
+          `${b.period}: ${b.employee_id}`,
+        );
+        db.exec("COMMIT");
+      } catch (e) {
+        db.exec("ROLLBACK");
+        throw e;
+      }
       return Response.json({ ok: true });
     }
     if (b.action === "policy") {
@@ -125,8 +185,19 @@ export async function POST(request: Request) {
           name: string;
           input: Record<string, unknown>;
           expected: Record<string, number>;
+          period?: string;
+          joined?: string;
+          adjustment?: Record<string, unknown>;
         }) => {
-          const actual = calculatePayroll(parseSalary(c.input), policy);
+          const actual = c.period
+            ? calculatePeriodPayroll(
+                parseSalary(c.input),
+                policy,
+                c.period,
+                c.joined ?? "2026-01-01",
+                parseAdjustment(c.adjustment ?? {}),
+              )
+            : calculatePayroll(parseSalary(c.input), policy);
           if (
             !c.expected ||
             !fields.every(
@@ -179,7 +250,6 @@ export async function POST(request: Request) {
           joined: string;
         }[];
         if (!staff.length) throw Error("Import or add staff first.");
-        const periodStart = String(b.period) + "-01";
         const periodEnd = new Date(
           Date.UTC(
             Number(String(b.period).slice(0, 4)),
@@ -198,11 +268,6 @@ export async function POST(request: Request) {
         const eligible = included.filter(
           (e) => !(JSON.parse(e.data!) as Salary).excluded,
         );
-        const partial = eligible.filter((e) => e.joined > periodStart);
-        if (partial.length)
-          throw Error(
-            `Mid-month starters need a prorated payroll calculation, which this fixed-monthly version does not support: ${partial.map((e) => e.name).join(", ")}`,
-          );
         if (!eligible.length)
           throw Error("No employees are included in payroll.");
         const run = Number(
@@ -218,7 +283,29 @@ export async function POST(request: Request) {
             ).lastInsertRowid,
         );
         for (const e of eligible) {
-          const details = calculatePayroll(JSON.parse(e.data!), policy);
+          const row = db
+            .prepare(
+              "SELECT data FROM payroll_adjustments WHERE company_id=? AND employee_id=? AND period=?",
+            )
+            .get(user.company_id, e.id, b.period) as
+            { data: string } | undefined;
+          const adjustment: PeriodAdjustment = row
+            ? JSON.parse(row.data)
+            : parseAdjustment({});
+          let details;
+          try {
+            details = calculatePeriodPayroll(
+              JSON.parse(e.data!),
+              policy,
+              b.period,
+              e.joined,
+              adjustment,
+            );
+          } catch (error) {
+            throw Error(
+              `${e.name}: ${error instanceof Error ? error.message : "Invalid period inputs"}`,
+            );
+          }
           db.prepare(
             "INSERT INTO payroll_items(run_id,employee_id,details) VALUES (?,?,?)",
           ).run(run, e.id, JSON.stringify({ ...details, name: e.name }));

@@ -1,5 +1,5 @@
 """Two-company end-to-end API tests for the expanded HR suite. Disposable DB/port 3105."""
-import concurrent.futures, http.cookiejar, json, os, secrets, sqlite3, subprocess, tempfile, time, urllib.request, urllib.error
+import concurrent.futures, csv as csv_module, io, http.cookiejar, json, os, secrets, sqlite3, subprocess, tempfile, time, urllib.request, urllib.error
 BASE='http://127.0.0.1:3105';checks=0;password=secrets.token_urlsafe(24)
 class Client:
  def __init__(self):self.http=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -99,6 +99,46 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    a.expect(200,'/api/people',{'employee_id':wid,'name':'Alpha Worker Renamed','role':'Engineer','joined':'2026-10-01','status':'Active'},'PATCH');login(worker,'alpha-worker@example.test')
    assert worker.expect(200,'/api/payroll')['items'][0]['name']=='Alpha Worker'
    assert 'Alpha Worker Renamed' not in a.expect(200,f'/api/reports?type=payroll&run_id={run}')
+   # Period inputs remain administrator-only and company-isolated, including reads.
+   period_body={'action':'adjustment','employee_id':wid,'period':'2026-11','bonus':'50000','one_off_deduction':'5000','reviewed_paye':'12000','review_note':'Fixture PAYE review reference'}
+   for c in [guest,worker,manager]:c.expect(401 if c is guest else 403,'/api/payroll',period_body)
+   a.expect(403,'/api/payroll',period_body,origin='https://untrusted.example')
+   b.expect(404,'/api/payroll',period_body)
+   a.expect(400,'/api/payroll',{**period_body,'period':'2026-13'})
+   a.expect(400,'/api/payroll',{**period_body,'review_note':''})
+   a.expect(400,'/api/payroll',{**period_body,'pensionable_bonus':'50001'})
+   a.expect(400,'/api/payroll',{**period_body,'period':'2026-10'})
+   a.expect(400,'/api/payroll',{**period_body,'action':'clear_adjustment','period':'2026-10'})
+   a.expect(200,'/api/people',{'employee_id':wid,'name':'Alpha Worker Renamed','role':'Engineer','joined':'2026-11-16','status':'Active'},'PATCH')
+   login(worker,'alpha-worker@example.test')
+   a.expect(400,'/api/payroll',{'action':'draft','period':'2026-11'})
+   assert all(r['period']!='2026-11' for r in a.expect(200,'/api/payroll')['runs'])
+   a.expect(200,'/api/payroll',period_body)
+   assert not worker.expect(200,'/api/payroll')['adjustments'] and not manager.expect(200,'/api/payroll')['adjustments'] and not b.expect(200,'/api/payroll')['adjustments']
+   assert a.expect(200,'/api/payroll')['adjustments'][0]['employee_id']==wid
+   variable_cases=json.load(open('public/payroll-period-cases.json'))
+   assert a.expect(200,'/api/payroll',{'action':'compare','cases':variable_cases})['all_passed']
+   a.expect(200,'/api/payroll',{'action':'draft','period':'2026-11'})
+   november=a.expect(200,'/api/payroll');novrun=next(r['id'] for r in november['runs'] if r['period']=='2026-11')
+   a.expect(400,'/api/payroll',{**period_body,'bonus':'1'})
+   a.expect(400,'/api/payroll',{**period_body,'action':'clear_adjustment'})
+   a.expect(200,'/api/payroll',{'action':'discard','run_id':novrun})
+   a.expect(200,'/api/payroll',{**period_body,'action':'clear_adjustment'})
+   assert not a.expect(200,'/api/payroll')['adjustments']
+   a.expect(200,'/api/payroll',period_body)
+   a.expect(200,'/api/payroll',{'action':'draft','period':'2026-11'})
+   november=a.expect(200,'/api/payroll');novrun=next(r['id'] for r in november['runs'] if r['period']=='2026-11')
+   original=next(i['details'] for i in november['items'] if i['run_id']==novrun and i['employee_id']==wid);detail=json.loads(original)
+   assert detail['proration']['paid_days']==15 and detail['proration']['days']==30 and detail['gross']==22500000 and detail['paye']==1200000
+   assert detail['earnings']['bonus']==5000000 and detail['other_deductions']==500000 and detail['adjustment']['review_note']=='Fixture PAYE review reference'
+   assert len(worker.expect(200,'/api/payroll')['items'])==1
+   a.expect(200,'/api/payroll',{'action':'approve','run_id':novrun,'reviewed':True})
+   a.expect(400,'/api/payroll',period_body)
+   a.expect(400,'/api/payroll',{'action':'discard','run_id':novrun})
+   a.expect(200,'/api/payroll',{'action':'salary','employee_id':wid,'basic':'999999'})
+   assert next(i['details'] for i in worker.expect(200,'/api/payroll')['items'] if i['run_id']==novrun)==original
+   exported=list(csv_module.DictReader(io.StringIO(a.expect(200,f'/api/reports?type=payroll&run_id={novrun}'))))
+   assert next(r for r in exported if r['name']=='Alpha Worker Renamed')['gross_kobo']=='22500000'
    analytics=a.expect(200,'/api/reports');assert 0<=analytics['first_payroll_hours']<24 and analytics['funnel'][0]['status']=='Interview';assert b.expect(200,'/api/reports')['first_payroll_hours'] is None
    audit=a.expect(200,'/api/reports?type=audit');assert any(x['action']=='Payroll approved' for x in audit['rows'])
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})

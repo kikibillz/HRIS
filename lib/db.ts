@@ -142,3 +142,10 @@ CREATE TABLE IF NOT EXISTS company_settings(company_id INTEGER PRIMARY KEY REFER
 
 db.exec(`CREATE TABLE IF NOT EXISTS hr_record_events(id INTEGER PRIMARY KEY,record_id INTEGER NOT NULL REFERENCES hr_records(id),status TEXT NOT NULL,actor_id INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));
 CREATE TABLE IF NOT EXISTS assistant_usage(account_id INTEGER PRIMARY KEY REFERENCES accounts(id),calls INTEGER NOT NULL,reset_at INTEGER NOT NULL);`);
+
+// Additive, period-specific inputs. Historical payroll item snapshots are untouched.
+db.exec(`CREATE TABLE IF NOT EXISTS payroll_adjustments(
+ company_id INTEGER NOT NULL REFERENCES companies(id), employee_id INTEGER NOT NULL REFERENCES employees(id),
+ period TEXT NOT NULL, data TEXT NOT NULL, updated_by INTEGER NOT NULL REFERENCES accounts(id),
+ updated TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+ PRIMARY KEY(company_id,employee_id,period));`);

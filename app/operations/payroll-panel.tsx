@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import PayrollAdjustments, { type AdjustmentRow } from "./payroll-adjustments";
 import { api, amount, type Context } from "./types";
 import {
   defaultPolicy,
@@ -19,6 +20,7 @@ type Item = {
 type Run = { id: number; period: string; status: string };
 type Data = {
   runs: Run[];
+  adjustments: AdjustmentRow[];
   items: Item[];
   salaries: { employee_id: number; name: string; data: string }[];
   policy: PayrollPolicy;
@@ -26,6 +28,7 @@ type Data = {
   sources: string[];
 };
 const labels: Record<string, string> = {
+  bonus: "One-off bonus",
   paye: "PAYE",
   pension: "Employee pension",
   nhf: "NHF",
@@ -76,6 +79,7 @@ export default function PayrollPanel({ context }: { context: Context }) {
   const salary = data.salaries.find((s) => s.employee_id === employee);
   const saved: Partial<Salary> = salary ? JSON.parse(salary.data) : {};
   const policy = data.policy ?? defaultPolicy;
+  const slip = selected ? JSON.parse(selected.details) : null;
   return (
     <>
       {error && (
@@ -88,11 +92,11 @@ export default function PayrollPanel({ context }: { context: Context }) {
           <section className="panel ops-form">
             <h2>Payroll readiness</h2>
             <p>
-              Nigeria 2026 · fixed monthly employment income · {data.version}.
-              Review pension applicability, NHF election and basis, relief
-              evidence, and employer levies with your accountant. Variable pay,
-              retroactive changes, and cumulative PAYE adjustments are outside
-              this version.
+              Nigeria 2026 · monthly employment income · {data.version}. Review
+              pension applicability, NHF election and basis, relief evidence,
+              and employer levies with your accountant. Bonuses and partial
+              months use explicitly reviewed PAYE inputs. Automated cumulative
+              PAYE and retroactive corrections remain outside this version.
             </p>
             <p>
               {data.salaries.length} employee compensation records configured.
@@ -105,6 +109,10 @@ export default function PayrollPanel({ context }: { context: Context }) {
             ·{" "}
             <a href="/payroll-reference-cases.json" download>
               Download reference test cases
+            </a>{" "}
+            ·{" "}
+            <a href="/payroll-period-cases.json" download>
+              Download reviewed-period test cases
             </a>
           </section>
           <details className="panel ops-form">
@@ -194,6 +202,12 @@ export default function PayrollPanel({ context }: { context: Context }) {
               </button>
             </form>
           </details>
+          <PayrollAdjustments
+            context={context}
+            rows={data.adjustments}
+            busy={busy}
+            action={action}
+          />
           <details className="panel ops-form">
             <summary>Statutory settings and applicability</summary>
             <form
@@ -502,16 +516,23 @@ export default function PayrollPanel({ context }: { context: Context }) {
           </div>
           <h3>{selected.name}</h3>
           <p>{selected.status} · Amounts in NGN</p>
+          {slip.proration && (
+            <p>
+              Paid calendar days: {slip.proration.paid_days} /{" "}
+              {slip.proration.days}. {slip.tax_method}. Review reference:{" "}
+              {slip.adjustment.review_note || "Standard recurring calculation"}.
+            </p>
+          )}
           <h3>Earnings</h3>
           <dl className="profile-details">
-            {Object.entries(
-              JSON.parse(selected.details).earnings as Record<string, number>,
-            ).map(([key, value]) => (
-              <div key={key}>
-                <dt>{labels[key] ?? key.replaceAll("_", " ")}</dt>
-                <dd>{amount(value)}</dd>
-              </div>
-            ))}
+            {Object.entries(slip.earnings as Record<string, number>).map(
+              ([key, value]) => (
+                <div key={key}>
+                  <dt>{labels[key] ?? key.replaceAll("_", " ")}</dt>
+                  <dd>{amount(value)}</dd>
+                </div>
+              ),
+            )}
           </dl>
           <h3>Employee deductions</h3>
           <dl className="profile-details">
@@ -524,31 +545,42 @@ export default function PayrollPanel({ context }: { context: Context }) {
               "total_deductions",
             ].map((key) => (
               <div key={key}>
-                <dt>{labels[key] ?? key.replaceAll("_", " ")}</dt>
-                <dd>{amount(JSON.parse(selected.details)[key])}</dd>
+                <dt>
+                  {key === "other_deductions"
+                    ? "Other deductions (recurring + one-off)"
+                    : (labels[key] ?? key.replaceAll("_", " "))}
+                </dt>
+                <dd>{amount(slip[key])}</dd>
               </div>
             ))}
           </dl>
           <p>
             <strong>
-              Gross pay: {amount(JSON.parse(selected.details).gross)} · Net pay:{" "}
-              {amount(JSON.parse(selected.details).net)}
+              Gross pay: {amount(slip.gross)} · Net pay: {amount(slip.net)}
             </strong>
           </p>
+          {slip.adjustment?.one_off_deduction > 0 && (
+            <p>
+              Other deductions include a one-off deduction of{" "}
+              {amount(slip.adjustment.one_off_deduction)}.
+            </p>
+          )}
           <h3>Paid by your employer</h3>
           <dl className="profile-details">
             {["employer_pension", "employer_ecs", "employer_itf"].map((key) => (
               <div key={key}>
-                <dt>{labels[key] ?? key.replaceAll("_", " ")}</dt>
-                <dd>{amount(JSON.parse(selected.details)[key])}</dd>
+                <dt>
+                  {key === "other_deductions"
+                    ? "Other deductions (recurring + one-off)"
+                    : (labels[key] ?? key.replaceAll("_", " "))}
+                </dt>
+                <dd>{amount(slip[key])}</dd>
               </div>
             ))}
           </dl>
           <details>
-            <summary>Annual tax working and band calculation</summary>
-            <pre className="ops-code">
-              {JSON.stringify(JSON.parse(selected.details), null, 2)}
-            </pre>
+            <summary>Calculation inputs and tax working</summary>
+            <pre className="ops-code">{JSON.stringify(slip, null, 2)}</pre>
           </details>
           <button className="primary" onClick={() => window.print()}>
             Print / Save PDF

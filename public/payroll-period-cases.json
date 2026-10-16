@@ -1,0 +1,177 @@
+[
+  {
+    "name": "October starter and bonus",
+    "period": "2026-10",
+    "joined": "2026-10-16",
+    "input": {
+      "basic": "310000",
+      "pension": false
+    },
+    "adjustment": {
+      "bonus": "50000",
+      "one_off_deduction": "5000",
+      "reviewed_paye": "12000",
+      "review_note": "Engineering fixture: supplied PAYE; not accountant signoff"
+    },
+    "expected": {
+      "gross": 21000000,
+      "paye": 1200000,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 1700000,
+      "net": 19300000,
+      "employer_ecs": 210000,
+      "employer_itf": 0
+    },
+    "paid_days": 16,
+    "days": 31
+  },
+  {
+    "name": "Starter pensionable bonus NHF",
+    "period": "2026-10",
+    "joined": "2026-10-16",
+    "input": {
+      "basic": "310000",
+      "nhf": true
+    },
+    "adjustment": {
+      "bonus": "50000",
+      "pensionable_bonus": "20000",
+      "one_off_deduction": "5000",
+      "reviewed_paye": "8000",
+      "review_note": "Engineering fixture: supplied PAYE"
+    },
+    "expected": {
+      "gross": 21000000,
+      "paye": 800000,
+      "pension": 1440000,
+      "employer_pension": 1800000,
+      "nhf": 400000,
+      "nhis": 0,
+      "total_deductions": 3140000,
+      "net": 17860000,
+      "employer_ecs": 210000,
+      "employer_itf": 0
+    },
+    "paid_days": 16,
+    "days": 31
+  },
+  {
+    "name": "February half month",
+    "period": "2026-02",
+    "joined": "2026-02-15",
+    "input": {
+      "basic": "200000"
+    },
+    "adjustment": {
+      "reviewed_paye": "3000",
+      "review_note": "Engineering fixture: supplied PAYE"
+    },
+    "expected": {
+      "gross": 10000000,
+      "paye": 300000,
+      "pension": 800000,
+      "employer_pension": 1000000,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 1100000,
+      "net": 8900000,
+      "employer_ecs": 100000,
+      "employer_itf": 0
+    },
+    "paid_days": 14,
+    "days": 28
+  },
+  {
+    "name": "Full month pensionable bonus",
+    "period": "2026-10",
+    "joined": "2026-01-01",
+    "input": {
+      "basic": "200000"
+    },
+    "adjustment": {
+      "bonus": "100000",
+      "pensionable_bonus": "100000",
+      "reviewed_paye": "25000",
+      "review_note": "Engineering fixture: supplied PAYE"
+    },
+    "expected": {
+      "gross": 30000000,
+      "paye": 2500000,
+      "pension": 2400000,
+      "employer_pension": 3000000,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 4900000,
+      "net": 25100000,
+      "employer_ecs": 300000,
+      "employer_itf": 0
+    },
+    "paid_days": 31,
+    "days": 31
+  },
+  {
+    "name": "Partial minimum wage explicit zero",
+    "period": "2026-10",
+    "joined": "2026-10-31",
+    "input": {
+      "basic": "70000",
+      "pension": false
+    },
+    "adjustment": {
+      "reviewed_paye": "0",
+      "review_note": "Engineering fixture: supplied zero PAYE"
+    },
+    "expected": {
+      "gross": 225806,
+      "paye": 0,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 0,
+      "net": 225806,
+      "employer_ecs": 2258,
+      "employer_itf": 0
+    },
+    "paid_days": 1,
+    "days": 31
+  },
+  {
+    "name": "Component rounding",
+    "period": "2026-10",
+    "joined": "2026-10-17",
+    "input": {
+      "basic": "123456.78",
+      "housing": "23456.79",
+      "transport": "3456.78",
+      "other": "111.11",
+      "nhf": true,
+      "nhis": "123.45",
+      "other_deductions": "11.11"
+    },
+    "adjustment": {
+      "bonus": "500.01",
+      "pensionable_bonus": "100.01",
+      "one_off_deduction": "2.22",
+      "reviewed_paye": "1500.01",
+      "review_note": "Engineering fixture: rounding"
+    },
+    "expected": {
+      "gross": 7331362,
+      "paye": 150001,
+      "pension": 582879,
+      "employer_pension": 728599,
+      "nhf": 149343,
+      "nhis": 12345,
+      "total_deductions": 895901,
+      "net": 6435461,
+      "employer_ecs": 73314,
+      "employer_itf": 0
+    },
+    "paid_days": 15,
+    "days": 31
+  }
+]
