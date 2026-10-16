@@ -199,3 +199,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS recruiting_one_pending ON recruiting_approvals
 db.exec(
   `CREATE TABLE IF NOT EXISTS recruiting_handoffs(applicant_id INTEGER PRIMARY KEY REFERENCES hr_records(id),company_id INTEGER NOT NULL REFERENCES companies(id),employee_id INTEGER NOT NULL REFERENCES employees(id),approval_id INTEGER NOT NULL REFERENCES recruiting_approvals(id),onboarding_assignment_id INTEGER REFERENCES hr_records(id),mode TEXT NOT NULL CHECK(mode IN ('create','link')),snapshot TEXT NOT NULL,snapshot_hash TEXT NOT NULL,created_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));`,
 );
+
+// Frozen offer documents and responses are separate from short-lived bearer links.
+db.exec(`CREATE TABLE IF NOT EXISTS recruiting_offers(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),applicant_id INTEGER NOT NULL REFERENCES hr_records(id),approval_hash TEXT NOT NULL,snapshot TEXT NOT NULL,document_hash TEXT NOT NULL,letter TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'Issued' CHECK(status IN ('Issued','Accepted','Declined','Revoked','Expired')),expires INTEGER NOT NULL,created_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),first_viewed TEXT,response_name TEXT NOT NULL DEFAULT '',responded TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS recruiting_one_issued_offer ON recruiting_offers(applicant_id) WHERE status='Issued';
+CREATE TABLE IF NOT EXISTS recruiting_offer_links(token_hash TEXT PRIMARY KEY,offer_id INTEGER NOT NULL UNIQUE REFERENCES recruiting_offers(id),expires INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS recruiting_offer_events(id INTEGER PRIMARY KEY,offer_id INTEGER NOT NULL REFERENCES recruiting_offers(id),action TEXT NOT NULL,actor_id INTEGER REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));`);

@@ -257,7 +257,8 @@ try {
       // Invalidate recovered bearer credentials only in the new copy; account/password rows stay intact.
       const restored = new DatabaseSync(plain);
       let revokedSessions = 0,
-        revokedLinks = 0;
+        revokedLinks = 0,
+        revokedOfferLinks = 0;
       try {
         restored.exec("PRAGMA foreign_keys=ON; BEGIN IMMEDIATE");
         if (report.counts.sessions !== undefined)
@@ -271,6 +272,11 @@ try {
                 "UPDATE account_links SET used_at=? WHERE used_at IS NULL",
               )
               .run(Date.now()).changes,
+          );
+        if (report.counts.recruiting_offer_links !== undefined)
+          revokedOfferLinks = Number(
+            restored.prepare("DELETE FROM recruiting_offer_links").run()
+              .changes,
           );
         restored.exec("COMMIT");
       } catch (e) {
@@ -300,6 +306,7 @@ try {
           restored_plaintext_sha256: await digest(dest),
           revoked_sessions: revokedSessions,
           revoked_unused_links: revokedLinks,
+          revoked_offer_links: revokedOfferLinks,
           ...restoredReport,
           live_data_changed: false,
           instructions:

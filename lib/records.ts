@@ -254,7 +254,22 @@ export function writeRecord(
         throw Error(
           "The candidate changed. Refresh and review the latest record.",
         );
-      assertHiringApproval(user.company_id, old.id);
+      const approvalHash = assertHiringApproval(user.company_id, old.id);
+      if (status === "Hired") {
+        const offer = db
+          .prepare(
+            "SELECT status,approval_hash FROM recruiting_offers WHERE company_id=? AND applicant_id=? ORDER BY id DESC LIMIT 1",
+          )
+          .get(user.company_id, old.id) as
+          { status: string; approval_hash: string } | undefined;
+        if (
+          offer &&
+          (offer.status !== "Accepted" || offer.approval_hash !== approvalHash)
+        )
+          throw Error(
+            "The candidate must accept the latest offer matching the approved hiring evidence before Hired.",
+          );
+      }
     }
     let recordId = id;
     if (old) {
@@ -294,6 +309,29 @@ export function writeRecord(
     db.prepare(
       "INSERT INTO hr_record_events(record_id,status,actor_id) VALUES (?,?,?)",
     ).run(recordId!, status, user.id);
+    if (kind === "applicants" && status === "Rejected") {
+      const open = db
+        .prepare(
+          "SELECT id FROM recruiting_offers WHERE applicant_id=? AND company_id=? AND status='Issued'",
+        )
+        .all(recordId!, user.company_id) as { id: number }[];
+      for (const offer of open) {
+        db.prepare(
+          "UPDATE recruiting_offers SET status='Revoked' WHERE id=?",
+        ).run(offer.id);
+        db.prepare("DELETE FROM recruiting_offer_links WHERE offer_id=?").run(
+          offer.id,
+        );
+        db.prepare(
+          "INSERT INTO recruiting_offer_events(offer_id,action,actor_id) VALUES (?,'Revoked after candidate rejection',?)",
+        ).run(offer.id, user.id);
+        audit(
+          user,
+          "Offer revoked after candidate rejection",
+          String(offer.id),
+        );
+      }
+    }
     audit(user, `${kind} ${old ? "updated" : "created"}`, String(recordId));
     if (employeeId && employeeId !== user.employee_id)
       notify(employeeId, m.title, `${String(data.title)} · ${status}`);

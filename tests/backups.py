@@ -49,6 +49,12 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    a.expect(200,'/api/payroll',{'action':'salary','employee_id':aid,'basic':'200000'});a.expect(200,'/api/payroll',{'action':'salary','employee_id':mid,'basic':'0','excluded':True})
    a.expect(200,'/api/payroll',{'action':'draft','period':'2026-11'});run=a.expect(200,'/api/payroll')['runs'][0]['id'];a.expect(200,'/api/payroll',{'action':'approve','run_id':run,'reviewed':True})
    a.document(wid)
+   # A synthetic frozen offer proves archives preserve letters while excluding/revoking links.
+   with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:
+    candidate=db.execute("INSERT INTO hr_records(company_id,kind,title,status,created_by) VALUES (?,'applicants','Recovery fixture','Offer',?)",(company,context['user']['id'])).lastrowid
+    offer=db.execute("INSERT INTO recruiting_offers(company_id,applicant_id,approval_hash,snapshot,document_hash,letter,expires,created_by) VALUES (?,?,'fixture','{}','fixture','Preserved frozen offer',?,?)",(company,candidate,int(time.time()*1000)+86400000,context['user']['id'])).lastrowid
+    db.execute('INSERT INTO recruiting_offer_links VALUES (?,?,?)',(hashlib.sha256(b'fixture-private-link').hexdigest(),offer,int(time.time()*1000)+86400000))
+
    create={'action':'create','passphrase':passphrase,'confirmed':True}
    guest.expect(401,'/api/backups');guest.expect(401,'/api/backups',create)
    for c in [employee,manager]:c.expect(403,'/api/backups');c.expect(403,'/api/backups',create);c.expect(403,'/api/backups',{'action':'preview'})
@@ -57,7 +63,8 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    encoded=base64.b64encode(encrypted).decode();plain=crypto('decrypt',{'archive':encoded})
    assert plain['company_id']==company and plain['format']=='hris-company-v1'
    assert all('password_hash' not in account for account in plain['tables']['accounts'])
-   for name in ['sessions','account_links','login_attempts','password_attempts']:assert name not in plain['tables']
+   for name in ['sessions','account_links','login_attempts','password_attempts','recruiting_offer_links']:assert name not in plain['tables']
+   assert plain['tables']['recruiting_offers'][0]['letter']=='Preserved frozen offer'
    text=json.dumps(plain);assert 'backup-b@example.test' not in text and 'Backup Beta' not in text
    assert base64.b64decode(plain['tables']['documents'][0]['bytes']['data'])==b'Company A private document'
    preview=a.expect(200,'/api/backups',{'action':'preview','passphrase':passphrase,'archive':encoded});assert preview['restore_supported'] is False
@@ -88,12 +95,14 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    corrupt_live=os.path.join(directory,'corrupt-live');os.mkdir(corrupt_live);open(os.path.join(corrupt_live,'hris.sqlite'),'wb').write(b'broken-database')
    valid_preview=operator('preview','--input',archive_path,extra={'HRIS_DATA_DIR':corrupt_live});assert valid_preview['integrity']=='ok' and valid_preview['current_error'] and valid_preview['current_counts'] is None
    assert open(os.path.join(corrupt_live,'hris.sqlite'),'rb').read()==b'broken-database'
-   recovered=operator('restore','--input',archive_path,'--output',restored);assert not recovered['live_data_changed'] and recovered['revoked_sessions']>0 and recovered['revoked_unused_links']>0
+   recovered=operator('restore','--input',archive_path,'--output',restored);assert not recovered['live_data_changed'] and recovered['revoked_sessions']>0 and recovered['revoked_unused_links']>0 and recovered['revoked_offer_links']==1
    with sqlite3.connect(os.path.join(restored,'hris.sqlite')) as db:
     assert db.execute('SELECT id,password_hash FROM accounts ORDER BY id').fetchall()==hashes
     assert db.execute('SELECT * FROM payroll_items ORDER BY id').fetchall()==frozen and db.execute('SELECT * FROM documents ORDER BY id').fetchall()==docs
     assert db.execute('SELECT COUNT(*) FROM sessions').fetchone()[0]==0 and db.execute('SELECT COUNT(*) FROM account_links WHERE used_at IS NULL').fetchone()[0]==0
     assert db.execute('SELECT role FROM employees WHERE id=?',(wid,)).fetchone()[0]=='Engineer'
+    assert db.execute('SELECT COUNT(*) FROM recruiting_offer_links').fetchone()[0]==0
+    assert db.execute('SELECT letter FROM recruiting_offers WHERE id=?',(offer,)).fetchone()[0]=='Preserved frozen offer'
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert db.execute('SELECT role FROM employees WHERE id=?',(wid,)).fetchone()[0]=='Changed after backup'
    recovery_server=start(restored,3109,log);ready('http://127.0.0.1:3109');recovered_client=Client('http://127.0.0.1:3109');recovered_client.expect(200,'/api/auth',{'email':'backup-a@example.test','password':password});assert recovered_client.expect(200,'/api/operations')['company']['name']=='Backup Alpha';assert len(recovered_client.expect(200,'/api/payroll')['items'])==2
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert not db.execute('PRAGMA foreign_key_check').fetchall()

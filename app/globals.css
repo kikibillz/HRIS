@@ -1210,3 +1210,5 @@ footer > span:last-child {
 @media print{.ops-sidebar,.ops-main>header,.ops-menu,.ops-toolbar,button,.ops-form form{display:none!important}.ops-shell{display:block}.ops-main>main{padding:0}body:has(.payslip) .ops-main>main>*:not(.payslip){display:none!important}.payslip{border:none!important;box-shadow:none!important}.payslip details{display:block}.payslip .ops-code{max-height:none}}
 
 @media print{.payslip details{display:none!important}}
+
+.offer-page{max-width:900px;margin:36px auto;padding:0 16px}.offer-letter{white-space:pre-wrap;overflow-wrap:anywhere;margin:24px 0;line-height:1.7}.offer-controls{margin-top:24px}@media print{.offer-page .offer-controls{display:none!important}.offer-page{max-width:none;margin:0;padding:0}.offer-page .panel{box-shadow:none;border:none}}

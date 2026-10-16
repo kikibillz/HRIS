@@ -144,6 +144,57 @@ with tempfile.TemporaryDirectory(prefix='hris-recruiting-') as directory:
     assert db.execute('SELECT * FROM employees ORDER BY id').fetchall()==linked_profiles
     assert db.execute("SELECT count(*) FROM hr_records WHERE kind='tasks'").fetchone()[0]==task_count
     assert not db.execute('PRAGMA foreign_key_check').fetchall()
+   # Private offer links disclose only the frozen letter and allow one final response.
+   oid=applicant('Offer candidate')
+   a.call(200,body={'action':'assign','applicant_id':oid,'interviewer_id':aid});offer_card=next(c for c in a.call(200)['cards'] if c['applicant_id']==oid);a.call(200,body={**score,'card_id':offer_card['id']})
+   a.call(200,body={**request,'applicant_id':oid});offer_approval=manager.call(200)['approvals'][0]['id'];manager.call(200,body={**decision,'approval_id':offer_approval});a.call(200,'/api/records/applicants',{'id':oid,'status':'Offer'},'PATCH')
+   letter_template=a.call(201,'/api/records/templates',{'title':'Candidate offer','body':'Dear {{candidate_name}}, welcome to {{company_name}} as {{role}} on {{start_date}}.\n{{offer_terms}}'})['id']
+   issue={'action':'issue','applicant_id':oid,'template_id':letter_template,'start_date':'2026-11-01','expires_days':7,'terms':'Monthly gross NGN 350,000. Full details agreed with HR.','confirmed':True}
+   guest.call(401,'/api/offers')
+   for c in [reviewer,manager]:c.call(403,'/api/offers');c.call(403,'/api/offers',issue)
+   b.call(400,'/api/offers',issue);a.call(403,'/api/offers',issue,origin='https://untrusted.example')
+   a.call(400,'/api/offers',{**issue,'confirmed':False})
+   offered=a.call(201,'/api/offers',issue);offer_id=offered['id'];raw_token=offered['path'].split('#token=')[1]
+   a.call(400,'/api/offers',issue)
+   assert not b.call(200,'/api/offers')['offers']
+   guest.call(405,'/api/offer-response');guest.call(404,'/api/offer-response',{'action':'view','token':'0'*64})
+   guest.call(403,'/api/offer-response',{'action':'view','token':raw_token},origin='https://untrusted.example')
+   viewed=guest.call(200,'/api/offer-response',{'action':'view','token':raw_token})['offer'];assert 'Offer candidate' in viewed['letter'] and 'NGN 350,000' in viewed['letter'] and '{{' not in viewed['letter'] and 'email' not in viewed
+   assert raw_token not in json.dumps(a.call(200,'/api/offers'))
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT token_hash FROM recruiting_offer_links WHERE offer_id=?',(offer_id,)).fetchone()[0]!=raw_token
+   a.call(400,'/api/records/applicants',{'id':oid,'status':'Hired'},'PATCH')
+   rotated=a.call(200,'/api/offers',{'action':'rotate','offer_id':offer_id});new_token=rotated['path'].split('#token=')[1]
+   guest.call(404,'/api/offer-response',{'action':'view','token':raw_token})
+   a.call(200,'/api/offers',{'action':'revoke','offer_id':offer_id});guest.call(404,'/api/offer-response',{'action':'view','token':new_token})
+   declined=a.call(201,'/api/offers',issue);declined_token=declined['path'].split('#token=')[1]
+   guest.call(200,'/api/offer-response',{'action':'respond','token':declined_token,'decision':'Declined','name':'Candidate Example','confirmed':True})
+   a.call(400,'/api/records/applicants',{'id':oid,'status':'Hired'},'PATCH')
+   rejected=a.call(201,'/api/offers',issue);rejected_token=rejected['path'].split('#token=')[1]
+   a.call(200,'/api/records/applicants',{'id':oid,'status':'Rejected'},'PATCH');guest.call(404,'/api/offer-response',{'action':'view','token':rejected_token})
+   a.call(200,'/api/records/applicants',{'id':oid,'status':'Interview'},'PATCH')
+   a.call(400,'/api/records/applicants',{'id':oid,'status':'Offer'},'PATCH')
+   a.call(200,body={**request,'applicant_id':oid});reopened=manager.call(200)['approvals'][0]['id'];manager.call(200,body={**decision,'approval_id':reopened});a.call(200,'/api/records/applicants',{'id':oid,'status':'Offer'},'PATCH')
+   offered=a.call(201,'/api/offers',issue);expired_token=offered['path'].split('#token=')[1]
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute('UPDATE recruiting_offers SET expires=0 WHERE id=?',(offered['id'],))
+   guest.call(404,'/api/offer-response',{'action':'view','token':expired_token})
+   offered=a.call(201,'/api/offers',issue);raw_token=offered['path'].split('#token=')[1]
+   response={'action':'respond','token':raw_token,'decision':'Accepted','name':'Candidate Example','confirmed':True}
+   guest.call(400,'/api/offer-response',{**response,'confirmed':False});guest.call(400,'/api/offer-response',{**response,'name':''})
+   def respond(_):
+    req=urllib.request.Request(BASE+'/api/offer-response',data=json.dumps(response).encode(),headers={'Origin':BASE,'Content-Type':'application/json'})
+    try:r=urllib.request.urlopen(req,timeout=15)
+    except urllib.error.HTTPError as e:r=e
+    with r:return r.status
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:assert sorted(pool.map(respond,range(2)))==[200,400]
+   guest.call(400,'/api/offer-response',{**response,'decision':'Declined'})
+   assert guest.call(200,'/api/offer-response',{'action':'view','token':raw_token})['offer']['status']=='Accepted'
+   # A new approval for changed evidence cannot reuse an old accepted offer.
+   a.call(200,'/api/records/applicants',{'id':oid,'body':'Changed role evidence'},'PATCH');a.call(200,body={**request,'applicant_id':oid});approval_new=manager.call(200)['approvals'][0]['id'];manager.call(200,body={**decision,'approval_id':approval_new})
+   a.call(400,'/api/records/applicants',{'id':oid,'status':'Hired'},'PATCH')
+   revised=a.call(201,'/api/offers',{**issue,'terms':'Revised terms reviewed with candidate.'});revised_token=revised['path'].split('#token=')[1]
+   guest.call(200,'/api/offer-response',{**response,'token':revised_token});a.call(200,'/api/records/applicants',{'id':oid,'status':'Hired'},'PATCH')
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:assert db.execute('SELECT * FROM accounts ORDER BY id').fetchall()==credentials
    if browser_mode:
     from playwright.sync_api import sync_playwright,expect
     new=applicant('Browser candidate')
@@ -157,6 +208,11 @@ with tempfile.TemporaryDirectory(prefix='hris-recruiting-') as directory:
      hr.get_by_label('Hiring approver',exact=True).select_option(str(mid));hr.get_by_label('Hiring rationale',exact=True).fill('Please review the submitted interview evidence.');hr.get_by_role('button',name='Request hiring approval',exact=True).click();expect(hr.get_by_text('Hiring request',exact=False)).to_be_visible()
      approver=page(manager);approver.get_by_label('Interview candidate',exact=True).select_option(str(new));approver.get_by_text('Frozen evidence for this request',exact=True).click();expect(approver.get_by_text('Browser evidence: demonstrated relevant experience.',exact=True)).to_be_visible();approver.get_by_label('Hiring decision',exact=True).select_option('Approved');approver.get_by_label('Decision rationale',exact=True).fill('Reviewed the evidence and recommend proceeding.');approver.get_by_role('button',name='Record hiring decision',exact=True).click();expect(approver.get_by_role('heading',name='Approved',exact=False)).to_be_visible()
      approver.set_viewport_size({'width':390,'height':844});assert approver.evaluate('document.documentElement.scrollWidth <= innerWidth')
+     a.call(200,'/api/records/applicants',{'id':new,'status':'Offer'},'PATCH')
+     hr.goto(BASE+'/operations?tab=offers');hr.get_by_label('Offer candidate',exact=True).select_option(str(new));hr.get_by_label('Offer letter template',exact=True).select_option(str(letter_template));hr.get_by_label('Proposed start date',exact=True).fill('2026-11-01');hr.get_by_label('Offer terms',exact=True).fill('Browser offer terms, as discussed with HR.');hr.get_by_label('I reviewed the template and terms and authorize issuing this letter',exact=True).check();hr.get_by_role('button',name='Issue offer and private link',exact=True).click()
+     private_link=hr.get_by_label('Private candidate offer link',exact=True).input_value();candidate_page=browser.new_context(viewport={'width':390,'height':844}).new_page();candidate_page.on('pageerror',lambda e:errors.append(str(e)));candidate_page.goto(private_link)
+     expect(candidate_page.get_by_role('heading',name='Offer from Alpha',exact=True)).to_be_visible();assert '#token=' not in candidate_page.url;expect(candidate_page.get_by_text('Browser offer terms, as discussed with HR.',exact=False)).to_be_visible();assert candidate_page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+     candidate_page.get_by_label('Your full name',exact=True).fill('Browser Candidate');candidate_page.get_by_label('Your offer response',exact=True).select_option('Accepted');candidate_page.get_by_label('I confirm this is my response to the offer shown above',exact=True).check();candidate_page.get_by_role('button',name='Record my response',exact=True).click();expect(candidate_page.get_by_role('status')).to_contain_text('Accepted')
      a.call(200,'/api/records/applicants',{'id':new,'status':'Hired'},'PATCH')
      hr.goto(BASE+'/operations?tab=recruiting-handoff');expect(hr.get_by_role('heading',name='Review a hired candidate’s handoff',exact=True)).to_be_visible()
      hr.get_by_label('Handoff candidate',exact=True).select_option(str(new));hr.get_by_label('Work email',exact=True).fill('browser-handoff@example.test');hr.get_by_label('Employee department',exact=True).select_option(str(dept));hr.get_by_label('Handoff start date',exact=True).fill('2026-11-01');hr.get_by_label('Handoff onboarding template',exact=True).select_option(str(template))

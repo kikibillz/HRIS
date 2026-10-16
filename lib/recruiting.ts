@@ -73,4 +73,5 @@ export function assertHiringApproval(company: number, applicant: number) {
     throw Error(
       "A current hiring approval from a different approver is required before Offer or Hired.",
     );
+  return current.hash;
 }
