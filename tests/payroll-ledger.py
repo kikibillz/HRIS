@@ -90,6 +90,41 @@ with tempfile.TemporaryDirectory(prefix='hris-ytd-') as directory:
    export=list(csv.DictReader(io.StringIO(admin.expect(200,'/api/payroll-ledger?period=2026-11&format=csv'))));assert next(r for r in export if r['employee_id']==str(wid))['gross_kobo']=='220000000'
    assert 'worker@ytd.test' not in other.expect(200,'/api/payroll-ledger?format=csv')
    admin.payroll(400,action='draft',period='2026-08')
+   # External salary and statutory receipts use frozen payroll obligations.
+   receipt={'action':'record','run_id':nov,'obligation':'salary','employee_id':wid,'amount':'100000','reference':'SALARY-ALLOCATION-1','paid_on':'2026-10-16','note':'Fixture bank evidence','confirmed':True}
+   for c in [guest,worker,manager]:
+    c.expect(401 if c is guest else 403,f'/api/payroll-settlements?run_id={nov}')
+    c.expect(401 if c is guest else 403,'/api/payroll-settlements',receipt)
+   other.expect(400,f'/api/payroll-settlements?run_id={nov}');other.expect(400,'/api/payroll-settlements',receipt)
+   admin.expect(403,'/api/payroll-settlements',receipt,origin='https://untrusted.example')
+   for change in [{'confirmed':False},{'amount':'0'},{'amount':'-1'},{'amount':'184000.01'},{'amount':'1.001'},{'reference':''},{'paid_on':'2099-01-01'},{'paid_on':'2026-02-30'},{'employee_id':oid},{'obligation':'unknown'}]:admin.expect(400,'/api/payroll-settlements',{**receipt,**change})
+   original_slip=next(i['details'] for i in worker.expect(200,'/api/payroll')['items'] if i['run_id']==nov)
+   initial=admin.expect(200,f'/api/payroll-settlements?run_id={nov}');assert initial['salary_outstanding']==16640000
+   # Record a partial salary, then protect its outstanding balance and whole-batch path.
+   admin.expect(200,'/api/payroll-settlements',receipt)
+   admin.expect(400,'/api/payroll-settlements',receipt)
+   admin.payroll(400,action='record_payment',run_id=nov,reference='WHOLE-BATCH-DUPLICATE')
+   admin.expect(400,'/api/payroll-settlements',{**receipt,'reference':'OVERPAY','amount':'100000'})
+   admin.expect(200,'/api/payroll-settlements',{**receipt,'reference':'SALARY-ALLOCATION-2','amount':'66400'})
+   assert next(r for r in admin.expect(200,'/api/payroll')['runs'] if r['id']==nov)['status']=='Paid'
+   summary=admin.expect(200,f'/api/payroll-settlements?run_id={nov}');assert summary['salary_outstanding']==0
+   assert next(o for o in summary['obligations'] if o['key']=='pension')['due']==3600000
+   statutory={**receipt,'obligation':'paye','employee_id':None,'amount':'5000','reference':'PAYE-RECEIPT-1'}
+   admin.expect(200,'/api/payroll-settlements',statutory)
+   summary=admin.expect(200,f'/api/payroll-settlements?run_id={nov}');assert next(o for o in summary['obligations'] if o['key']=='paye')['outstanding']==1260000
+   first=next(r for r in summary['records'] if r['reference']=='SALARY-ALLOCATION-1')
+   correction={'action':'void','run_id':nov,'settlement_id':first['id'],'reason':'Fixture correction; no bank refund','confirmed':True}
+   admin.expect(400,'/api/payroll-settlements',{**correction,'reason':''});other.expect(400,'/api/payroll-settlements',correction)
+   admin.expect(200,'/api/payroll-settlements',correction);admin.expect(400,'/api/payroll-settlements',correction)
+   assert next(r for r in admin.expect(200,'/api/payroll')['runs'] if r['id']==nov)['status']=='Approved'
+   admin.expect(400,'/api/payroll-settlements',receipt)
+   admin.expect(200,'/api/payroll-settlements',{**receipt,'reference':'SALARY-CORRECTED-3'})
+   assert next(i['details'] for i in worker.expect(200,'/api/payroll')['items'] if i['run_id']==nov)==original_slip
+   exported=list(csv.DictReader(io.StringIO(admin.expect(200,f'/api/payroll-settlements?run_id={nov}&format=csv'))));assert next(r for r in exported if r['obligation']=='salary')['outstanding_kobo']=='0'
+   legacy=admin.expect(200,f'/api/payroll-settlements?run_id={run}');assert legacy['legacy']['reference']=='BANK-FIXTURE' and legacy['salary_outstanding']==0
+   admin.expect(400,'/api/payroll-settlements',{**receipt,'run_id':run,'reference':'LEGACY-DOUBLE'})
+   admin.expect(400,'/api/payroll-settlements',{**statutory,'run_id':run,'reference':'BANK-FIXTURE'})
+   assert any(r['voided_at'] for r in admin.expect(200,f'/api/payroll-settlements?run_id={nov}')['records'])
    # Opt-in cumulative PAYE uses server-owned opening/released totals, not client priors.
    cumulative={'action':'preview_cumulative','employee_id':wid,'period':'2026-12','paye_method':'cumulative','history_confirmed':True,'review_note':'TEST cumulative calendar-month method evidence'}
    for c in [guest,worker,manager]:c.payroll(401 if c is guest else 403,**cumulative)

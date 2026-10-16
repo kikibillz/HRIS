@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import PayrollSettlements from "./payroll-settlements";
 import PayrollLedgerPanel from "./payroll-ledger-panel";
 import PayrollReviewForm, { type PayrollReview } from "./payroll-review";
 import PayrollAdjustments, { type AdjustmentRow } from "./payroll-adjustments";
@@ -446,6 +447,9 @@ export default function PayrollPanel({ context }: { context: Context }) {
                   busy={busy}
                   action={action}
                 />
+              )}
+              {run.status !== "Draft" && (
+                <PayrollSettlements runId={run.id} onChange={load} />
               )}
               {run.status === "Approved" && (
                 <form

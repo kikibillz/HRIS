@@ -161,3 +161,14 @@ CREATE TABLE IF NOT EXISTS payroll_opening_events(
 CREATE TABLE IF NOT EXISTS payroll_reviews(
  id INTEGER PRIMARY KEY,run_id INTEGER NOT NULL UNIQUE REFERENCES payroll_runs(id),reviewed_by TEXT NOT NULL,reference TEXT NOT NULL,notes TEXT NOT NULL,
  snapshot_hash TEXT NOT NULL,recorded_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));`);
+
+// External-payment records are additive; corrections append a void record.
+db.exec(`CREATE TABLE IF NOT EXISTS payroll_settlements(
+ id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),run_id INTEGER NOT NULL REFERENCES payroll_runs(id),
+ obligation TEXT NOT NULL,employee_id INTEGER REFERENCES employees(id),amount INTEGER NOT NULL CHECK(amount>0),reference TEXT NOT NULL,
+ paid_on TEXT NOT NULL,note TEXT NOT NULL,created_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+ UNIQUE(company_id,reference));
+CREATE INDEX IF NOT EXISTS payroll_settlement_run ON payroll_settlements(run_id,obligation,employee_id);
+CREATE TABLE IF NOT EXISTS payroll_settlement_voids(
+ settlement_id INTEGER PRIMARY KEY REFERENCES payroll_settlements(id),reason TEXT NOT NULL,actor_id INTEGER NOT NULL REFERENCES accounts(id),
+ created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));`);

@@ -493,6 +493,35 @@ export async function POST(request: Request) {
           audit(user, "External payroll review recorded", String(run.id));
         } else if (b.action === "record_payment") {
           if (
+            db
+              .prepare(
+                "SELECT p.id FROM payments p JOIN payroll_runs r ON r.id=p.run_id WHERE r.company_id=? AND p.reference=?",
+              )
+              .get(user.company_id, String(b.reference ?? "").trim())
+          )
+            throw Error("This salary-batch reference is already recorded.");
+          if (
+            db
+              .prepare(
+                "SELECT s.id FROM payroll_settlements s LEFT JOIN payroll_settlement_voids v ON v.settlement_id=s.id WHERE s.run_id=? AND s.obligation='salary' AND v.settlement_id IS NULL LIMIT 1",
+              )
+              .get(run.id)
+          )
+            throw Error(
+              "Individual salary receipts already exist. Finish salary reconciliation instead of recording the whole batch again.",
+            );
+          if (
+            db
+              .prepare(
+                "SELECT s.id FROM payroll_settlements s WHERE s.company_id=? AND s.reference=?",
+              )
+              .get(user.company_id, String(b.reference ?? "").trim())
+          )
+            throw Error(
+              "This reference is already used by a receipt allocation.",
+            );
+
+          if (
             run.status !== "Approved" ||
             typeof b.reference !== "string" ||
             !b.reference.trim() ||
