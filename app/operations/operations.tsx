@@ -4,14 +4,20 @@ import { modules } from "@/lib/modules";
 import { api, type Context } from "./types";
 import RecordsPanel from "./records-panel";
 import PayrollPanel from "./payroll-panel";
+import OnboardingProgressPanel from "./onboarding-progress-panel";
 import OnboardingPanel from "./onboarding-panel";
 import LaunchPanel from "./launch-panel";
 import BackupsPanel from "./backups-panel";
 import ToolsPanel from "./tools-panel";
 const extras: Record<
   string,
-  { title: string; description: string; admin?: boolean }
+  { title: string; description: string; admin?: boolean; manager?: boolean }
 > = {
+  "onboarding-progress": {
+    title: "Onboarding progress",
+    description: "Track starters and remind employees about overdue tasks.",
+    manager: true,
+  },
   onboarding: {
     title: "Onboarding templates",
     description: "Reuse starter checklists and assign dated tasks in bulk.",
@@ -113,6 +119,7 @@ export default function Operations() {
     "payroll",
     "attendance",
     "documents",
+    "onboarding-progress",
     "onboarding",
     "tasks",
     "templates",
@@ -131,7 +138,10 @@ export default function Operations() {
     "audit",
     "backups",
   ];
-  const allowed = !meta.admin || admin;
+  const allowed =
+    (!meta.admin || admin) &&
+    (!("manager" in meta && meta.manager) ||
+      context.user.access !== "employee");
   return (
     <div className="ops-shell">
       <aside className={mobile ? "ops-sidebar open" : "ops-sidebar"}>
@@ -149,7 +159,14 @@ export default function Operations() {
         </a>
         <nav>
           {nav
-            .filter((k) => !(extras[k] ?? modules[k]).admin || admin)
+            .filter((k) => {
+              const item = extras[k] ?? modules[k];
+              return (
+                (!item.admin || admin) &&
+                (!("manager" in item && item.manager) ||
+                  context.user.access !== "employee")
+              );
+            })
             .map((k) => (
               <button
                 key={k}
@@ -185,9 +202,15 @@ export default function Operations() {
             </div>
           </div>
           {!allowed ? (
-            <p role="alert">Administrator access required.</p>
+            <p role="alert">
+              {meta.admin
+                ? "Administrator access required."
+                : "Manager or administrator access required."}
+            </p>
           ) : modules[tab] ? (
             <RecordsPanel key={tab} kind={tab} context={context} />
+          ) : tab === "onboarding-progress" ? (
+            <OnboardingProgressPanel />
           ) : tab === "onboarding" ? (
             <OnboardingPanel context={context} />
           ) : tab === "start" ? (

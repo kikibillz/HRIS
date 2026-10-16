@@ -111,6 +111,31 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    a.expect(200,'/api/onboarding',{'action':'archive','template_id':tid})
    a.expect(400,'/api/onboarding',{**batch,'start_date':'2026-04-01'})
    assert len(worker.expect(200,'/api/records/tasks')['rows'])==2
+   # Overdue progress is server-scoped; daily in-app reminders are atomic and idempotent.
+   guest.expect(401,'/api/onboarding-progress');worker.expect(403,'/api/onboarding-progress')
+   worker.expect(403,'/api/onboarding-progress',{'action':'remind','assignment_id':worker_assignment['id']})
+   progress=manager.expect(200,'/api/onboarding-progress');assert len(progress['assignments'])==1 and progress['assignments'][0]['employee_id']==wid and progress['assignments'][0]['overdue']==1
+   assert not b.expect(200,'/api/onboarding-progress?company_id='+str(ca['user']['company_id']))['assignments']
+   peer_assignment=next(x for x in a.expect(200,'/api/onboarding-progress')['assignments'] if x['employee_id']==pid)
+   manager.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})
+   b.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':worker_assignment['id']})
+   reminder={'action':'remind','assignment_id':worker_assignment['id']}
+   manager.expect(403,'/api/onboarding-progress',reminder,origin='https://untrusted.example')
+   before=len(worker.expect(200,'/api/notifications')['rows'])
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:sent=list(pool.map(lambda c:c.expect(200,'/api/onboarding-progress',reminder),[manager,a]))
+   assert sum(x['sent'] for x in sent)==1 and len(worker.expect(200,'/api/notifications')['rows'])==before+1
+   assert not manager.expect(200,'/api/onboarding-progress',reminder)['sent']
+   # Reassignment immediately removes the previous manager's access.
+   a.expect(200,'/api/employees',{'employee_id':wid,'manager_id':None},'PATCH')
+   assert not manager.expect(200,'/api/onboarding-progress')['assignments']
+   manager.expect(404,'/api/onboarding-progress',reminder)
+   a.expect(200,'/api/employees',{'employee_id':wid,'manager_id':manager_account},'PATCH')
+   # Today/future due dates and completed items must never trigger reminders.
+   today=progress['today']
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE hr_records SET due=? WHERE kind='tasks' AND reference_id=? AND status='Open'",(today,peer_assignment['id']))
+   assert not a.expect(200,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})['sent']
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE hr_records SET status='Done' WHERE kind='tasks' AND reference_id=?",(worker_assignment['id'],))
+   assert manager.expect(200,'/api/onboarding-progress')['assignments'][0]['overdue']==0
    task=records(a,'tasks',{'title':'Read handbook','employee_id':wid,'due':'2026-10-30'});worker.expect(200,'/api/records/tasks',{'id':task,'status':'Done'},'PATCH')
    template=records(a,'templates',{'title':'Welcome letter','body':'Welcome {{employee_name}} to {{company_name}} as {{role}} on {{start_date}}.'});letter=records(a,'letters',{'title':'Employment letter','employee_id':wid,'reference_id':template});assert 'Welcome Alpha Worker to Alpha' in worker.expect(200,'/api/records/letters')['rows'][0]['body'];assert not b.expect(200,'/api/records/letters')['rows'];assert not manager.expect(200,'/api/records/letters')['rows']
    policy=records(a,'policies',{'title':'Remote working','body':'Remote working requires manager approval.','status':'Published'});result=worker.expect(200,'/api/policy-assistant',{'question':'remote working approval'});assert result['sources'][0]['title']=='Remote working' and result['mode']=='Policy search';assert not b.expect(200,'/api/policy-assistant',{'question':'remote working approval'})['sources']
@@ -186,6 +211,8 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    analytics=a.expect(200,'/api/reports');assert 0<=analytics['first_payroll_hours']<24 and analytics['funnel'][0]['status']=='Interview';assert b.expect(200,'/api/reports')['first_payroll_hours'] is None
    audit=a.expect(200,'/api/reports?type=audit');assert any(x['action']=='Payroll approved' for x in audit['rows'])
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
+   assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
+   a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
    print(f'PASS: {checks} platform HTTP checks across two companies; import, private documents, attendance, payroll, payment records, recruiting, reviews, feedback, learning, onboarding, letters, policy search, analytics, audit and deactivation.')
   except Exception:
