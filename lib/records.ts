@@ -70,6 +70,8 @@ export function writeRecord(
         .get(id, user.company_id, kind) as HRRecord | undefined)
     : undefined;
   if (id && !old) throw Error("Record not found.");
+  if (kind === "tasks" && !old && b.reference_id)
+    throw Error("Checklist assignment references are managed by the server.");
   if (m.admin && user.access !== "admin")
     throw Error("Administrator access required.");
   if (

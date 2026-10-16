@@ -82,6 +82,35 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    feedback=records(worker,'feedback',{'title':'Peer feedback','employee_id':wid,'reviewer_id':pid});assert not worker.expect(200,'/api/records/feedback')['rows'];peer.expect(200,'/api/records/feedback',{'id':feedback,'rating':4,'body':'Strong collaboration','status':'Submitted'},'PATCH');assert worker.expect(200,'/api/records/feedback')['rows'][0]['body']=='Strong collaboration'
    course=records(a,'courses',{'title':'Security basics','body':'Never share passwords.','quiz_question':'What must you never share?','quiz_answer':'passwords'});assert 'quiz_answer' not in worker.expect(200,'/api/records/courses')['rows'][0]['data']
    learning=records(worker,'enrollments',{'title':'Security induction','employee_id':wid,'reference_id':course});worker.expect(400,'/api/records/enrollments',{'id':learning,'status':'Completed','quiz_answer':'nothing'},'PATCH');worker.expect(200,'/api/records/enrollments',{'id':learning,'status':'Completed','quiz_answer':'passwords'},'PATCH')
+   # Reusable onboarding templates: atomic bulk writes, retry safety and existing task permissions.
+   guest.expect(401,'/api/onboarding')
+   for c in [worker,manager]:
+    c.expect(403,'/api/onboarding');c.expect(403,'/api/onboarding',{'action':'create','title':'Denied','items':[]})
+   onboarding={'action':'create','title':'New starter pack','items':[{'title':'Preboarding paperwork','body':'Bring identity documents','days':-1},{'title':'Read team handbook','body':'Ask your manager about policies','days':0}]}
+   a.expect(403,'/api/onboarding',onboarding,origin='https://untrusted.example')
+   a.expect(400,'/api/onboarding',{**onboarding,'items':[]})
+   a.expect(400,'/api/onboarding',{**onboarding,'items':[{'title':'Invalid','body':'','days':366}]})
+   tid=a.expect(201,'/api/onboarding',onboarding)['id']
+   assert b.expect(200,'/api/onboarding')['templates']==[]
+   batch={'action':'assign','template_id':tid,'employee_ids':[wid,pid],'start_date':'2026-03-01'}
+   b.expect(400,'/api/onboarding',batch)
+   a.expect(400,'/api/onboarding',{**batch,'employee_ids':[wid,bid]})
+   a.expect(400,'/api/onboarding',{**batch,'start_date':'2026-02-30'})
+   a.expect(400,'/api/onboarding',{**batch,'employee_ids':[]})
+   assert not a.expect(200,'/api/onboarding')['assignments']
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+    results=list(pool.map(lambda _:a.expect(200,'/api/onboarding',batch),range(2)))
+   assert sum(x['created'] for x in results)==2 and sum(x['skipped'] for x in results)==2 and sum(x['tasks_created'] for x in results)==4
+   assigned=worker.expect(200,'/api/records/tasks')['rows'];assert len(assigned)==2 and {x['due'] for x in assigned}=={'2026-02-28','2026-03-01'}
+   worker.expect(400,'/api/records/tasks',{'title':'Injected task','employee_id':wid,'reference_id':assigned[0]['reference_id']})
+   assert len(manager.expect(200,'/api/records/tasks')['rows'])==2 and len(peer.expect(200,'/api/records/tasks')['rows'])==2 and not b.expect(200,'/api/records/tasks')['rows']
+   worker.expect(200,'/api/records/tasks',{'id':assigned[0]['id'],'status':'Done'},'PATCH')
+   worker_assignment=next(x for x in a.expect(200,'/api/onboarding')['assignments'] if x['name']=='Alpha Worker');assert worker_assignment['completed']==1 and worker_assignment['total']==2
+   # Completion edits cannot erase the server-owned assignment identity.
+   assert a.expect(200,'/api/onboarding',batch)['tasks_created']==0
+   a.expect(200,'/api/onboarding',{'action':'archive','template_id':tid})
+   a.expect(400,'/api/onboarding',{**batch,'start_date':'2026-04-01'})
+   assert len(worker.expect(200,'/api/records/tasks')['rows'])==2
    task=records(a,'tasks',{'title':'Read handbook','employee_id':wid,'due':'2026-10-30'});worker.expect(200,'/api/records/tasks',{'id':task,'status':'Done'},'PATCH')
    template=records(a,'templates',{'title':'Welcome letter','body':'Welcome {{employee_name}} to {{company_name}} as {{role}} on {{start_date}}.'});letter=records(a,'letters',{'title':'Employment letter','employee_id':wid,'reference_id':template});assert 'Welcome Alpha Worker to Alpha' in worker.expect(200,'/api/records/letters')['rows'][0]['body'];assert not b.expect(200,'/api/records/letters')['rows'];assert not manager.expect(200,'/api/records/letters')['rows']
    policy=records(a,'policies',{'title':'Remote working','body':'Remote working requires manager approval.','status':'Published'});result=worker.expect(200,'/api/policy-assistant',{'question':'remote working approval'});assert result['sources'][0]['title']=='Remote working' and result['mode']=='Policy search';assert not b.expect(200,'/api/policy-assistant',{'question':'remote working approval'})['sources']
