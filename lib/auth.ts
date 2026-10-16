@@ -10,6 +10,7 @@ import { previewHostname } from "./preview";
 export type User = {
   id: number;
   employee_id: number;
+  company_id: number;
   email: string;
   name: string;
   access: "admin" | "manager" | "employee";
@@ -41,7 +42,7 @@ export async function currentUser(): Promise<User | null> {
   return (
     (db
       .prepare(
-        `SELECT a.id,a.employee_id,a.email,a.access,e.name FROM sessions s JOIN accounts a ON a.id=s.account_id JOIN employees e ON e.id=a.employee_id WHERE s.token_hash=? AND s.expires>?`,
+        `SELECT a.id,a.employee_id,a.email,a.access,e.name,ce.company_id FROM sessions s JOIN accounts a ON a.id=s.account_id JOIN employees e ON e.id=a.employee_id JOIN company_employees ce ON ce.employee_id=e.id WHERE e.status='Active' AND s.token_hash=? AND s.expires>?`,
       )
       .get(digest(token), Date.now()) as User | undefined) || null
   );

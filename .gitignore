@@ -4,3 +4,6 @@ data/
 *.tsbuildinfo
 .env*
 !.env.example
+
+work/
+__pycache__/

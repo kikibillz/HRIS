@@ -44,6 +44,7 @@ INSERT INTO login_attempts VALUES('existing@example.test',2,9999999999999);
     with sqlite3.connect(database) as db:
         db.execute("INSERT INTO employees VALUES(42,'Existing manager','manager@example.test','Lead',7,'2025-01-01','Active')")
         db.execute("INSERT INTO accounts VALUES(24,42,'manager@example.test','manager-hash','manager')")
+        db.execute('INSERT INTO company_employees(employee_id,company_id) VALUES(42,1)')
         db.execute('INSERT INTO reporting_lines VALUES(41,24)')
         db.execute("INSERT INTO reporting_events(employee_id,manager_id,actor_id) VALUES(41,24,23)")
         tables = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]

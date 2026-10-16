@@ -80,6 +80,7 @@ export default function Login({ setup }: { setup: boolean }) {
           <button className="text-button" type="button" onClick={() => setRecovery(!recovery)}>Forgot password?</button>
           {recovery && <p role="status">Contact your workspace administrator. After verifying your identity, they can create a one-use recovery link under Employees → Recovery link. If you are the only administrator, contact the workspace operator for help.</p>}
         </>}
+        <p><a href="/signup">Create a new company workspace</a></p>
         <p className="login-note">
           {setup
             ? "Keep this preview private while setting up. Initial setup closes after your account is created."

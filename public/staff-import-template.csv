@@ -1,0 +1,2 @@
+name,email,role,department,joined,basic,housing,transport,other,annual_rent,pension,nhf,nhis,other_deductions,annual_reliefs,bank,bank_account,tax_id,pension_id,nhf_id
+Sample Employee,replace-me@example.test,Engineer,Engineering,2026-10-01,200000,100000,50000,0,1200000,true,true,0,0,0,Sample Bank,0123456789,TAX-EXAMPLE,RSA-EXAMPLE,NHF-EXAMPLE

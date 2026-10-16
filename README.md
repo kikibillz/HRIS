@@ -1,6 +1,12 @@
 # PeopleOS HRIS
 
-A working HR prototype built with free, open-source tools: Next.js, React, TypeScript, and local SQLite. No paid APIs, external database accounts, or subscriptions are required. It includes a responsive dashboard, employee directory, departments, sign-in, and a complete first leave-management workflow.
+A working HR suite built with Next.js, React, TypeScript, and local SQLite. It includes company signup and isolation, staff imports, Nigeria 2026 fixed-monthly payroll and payslips, attendance, documents, recruiting, goals/reviews/360 feedback, learning, onboarding, letters, notifications, analytics, and a company policy assistant. Existing employee, leave, manager approval, invitation, password, and recovery workflows are preserved. Core workflows and policy search run locally; generated AI answers require a configured AI Gateway account.
+
+## HR operations and first payroll
+
+Open **HR operations & self-service** from the existing workspace, or visit `/operations`. New companies register at `/signup` and follow **Company launch → Staff import → Payroll & payslips**. Download the CSV template and calculation review workbook inside the app. Employees use the same website on their phone for leave, clock-in/out, released payslips, learning, and notifications.
+
+Read [HR suite workflows, payroll scope, external configuration, and acceptance evidence](docs/HR-SUITE.md). Payroll reference cases are **not accountant-approved**; the 100% accountant-agreement target still needs professional review. Payments currently provide bank export and recording of payments made externally, rather than live money movement.
 
 ## Review the app in your browser
 
@@ -20,7 +26,7 @@ Cloud coding sessions and Codespaces are separate copies of the repository. Afte
 Open its terminal in the HRIS repository and run this single command:
 
 ```sh
-git pull origin main && bash scripts/start-preview.sh
+git pull --ff-only origin main && npm ci && bash scripts/start-preview.sh
 ```
 
 The startup helper checks Node.js, activates Node 24 through the Codespaces-provided nvm when needed, installs locked dependencies, starts a detached server, and verifies the real sign-in page before printing the app link. It preserves accounts and SQLite data. It is safe to rerun if the app is already healthy, and it will not stop an unrelated process on port 3000. Startup failures are shown in the terminal and saved to ignored `data/preview.log`. New containers run this helper automatically.
@@ -62,9 +68,9 @@ Optional real-browser tests require Python Playwright (`pip install playwright`)
 
 ## What comes next
 
-This is a functioning development prototype, not a production HR service. Before real staff records or public rollout, implement custom leave policies, account deactivation, backups, stronger abuse controls, privacy controls, and a security review. Payroll, attendance, recruiting, document storage, and integrations are future modules.
+This is a functioning development prototype, not a production HR service. Before broad production rollout, complete accountant signoff, advanced/variable payroll cases, connected payouts/remittances, configurable leave policies, backup/restore operations, and a security review. See the HR suite scope document for precise implemented flows and remaining boundaries.
 
-The app is single-workspace. Managers review only directly assigned employees; indirect reporting chains do not grant leave access. Existing accounts and requests are preserved, and reporting lines start unassigned. Sample people use fictional `.demo` email addresses and have no seeded login passwords. Only accounts you explicitly create can sign in.
+The app supports isolated companies. Existing records remain in the original workspace, with account IDs, passwords, requests, and reporting lines preserved. Managers review only directly assigned employees; indirect reporting chains do not grant leave access. New reporting lines start unassigned. Sample people use fictional `.demo` email addresses and have no seeded login passwords. Only accounts you explicitly create can sign in.
 
 ## Passwords, invitations, and recovery
 

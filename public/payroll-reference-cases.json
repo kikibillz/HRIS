@@ -1,0 +1,299 @@
+[
+  {
+    "name": "Minimum wage",
+    "input": {
+      "basic": "70000",
+      "pension": false
+    },
+    "expected": {
+      "gross": 7000000,
+      "paye": 0,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 0,
+      "net": 7000000,
+      "employer_ecs": 70000,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "Just above minimum wage",
+    "input": {
+      "basic": "70000.01",
+      "pension": false
+    },
+    "expected": {
+      "gross": 7000001,
+      "paye": 50000,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 50000,
+      "net": 6950001,
+      "employer_ecs": 70000,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "Basic salary with pension",
+    "input": {
+      "basic": "200000"
+    },
+    "expected": {
+      "gross": 20000000,
+      "paye": 1760000,
+      "pension": 1600000,
+      "employer_pension": 2000000,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 3360000,
+      "net": 16640000,
+      "employer_ecs": 200000,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "PAYE band: annual 3m",
+    "input": {
+      "basic": "250000",
+      "pension": false
+    },
+    "expected": {
+      "gross": 25000000,
+      "paye": 2750000,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 2750000,
+      "net": 22250000,
+      "employer_ecs": 250000,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "PAYE band: annual 12m",
+    "input": {
+      "basic": "1000000",
+      "pension": false
+    },
+    "expected": {
+      "gross": 100000000,
+      "paye": 16250000,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 16250000,
+      "net": 83750000,
+      "employer_ecs": 1000000,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "PAYE band: around annual 25m",
+    "input": {
+      "basic": "2083333.33",
+      "pension": false
+    },
+    "expected": {
+      "gross": 208333333,
+      "paye": 39000000,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 39000000,
+      "net": 169333333,
+      "employer_ecs": 2083333,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "PAYE band: around annual 50m",
+    "input": {
+      "basic": "4166666.67",
+      "pension": false
+    },
+    "expected": {
+      "gross": 416666667,
+      "paye": 86916667,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 86916667,
+      "net": 329750000,
+      "employer_ecs": 4166667,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "PAYE top band: annual 60m",
+    "input": {
+      "basic": "5000000",
+      "pension": false
+    },
+    "expected": {
+      "gross": 500000000,
+      "paye": 107750000,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 107750000,
+      "net": 392250000,
+      "employer_ecs": 5000000,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "Pension NHF and rent relief",
+    "input": {
+      "basic": "200000",
+      "housing": "100000",
+      "transport": "50000",
+      "nhf": true,
+      "annual_rent": "1200000"
+    },
+    "expected": {
+      "gross": 35000000,
+      "paye": 3596000,
+      "pension": 2800000,
+      "employer_pension": 3500000,
+      "nhf": 500000,
+      "nhis": 0,
+      "total_deductions": 6896000,
+      "net": 28104000,
+      "employer_ecs": 350000,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "Rent relief cap",
+    "input": {
+      "basic": "350000",
+      "annual_rent": "4000000"
+    },
+    "expected": {
+      "gross": 35000000,
+      "paye": 3296000,
+      "pension": 2800000,
+      "employer_pension": 3500000,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 6096000,
+      "net": 28904000,
+      "employer_ecs": 350000,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "NHIS and other deductions",
+    "input": {
+      "basic": "250000",
+      "nhis": "10000",
+      "other_deductions": "5000"
+    },
+    "expected": {
+      "gross": 25000000,
+      "paye": 2300000,
+      "pension": 2000000,
+      "employer_pension": 2500000,
+      "nhf": 0,
+      "nhis": 1000000,
+      "total_deductions": 5800000,
+      "net": 19200000,
+      "employer_ecs": 250000,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "Other recurring earnings",
+    "input": {
+      "basic": "200000",
+      "housing": "50000",
+      "transport": "25000",
+      "other": "75000",
+      "nhf": true
+    },
+    "expected": {
+      "gross": 35000000,
+      "paye": 4064000,
+      "pension": 2200000,
+      "employer_pension": 2750000,
+      "nhf": 500000,
+      "nhis": 0,
+      "total_deductions": 6764000,
+      "net": 28236000,
+      "employer_ecs": 350000,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "Other eligible annual reliefs",
+    "input": {
+      "basic": "200000",
+      "annual_reliefs": "120000"
+    },
+    "expected": {
+      "gross": 20000000,
+      "paye": 1610000,
+      "pension": 1600000,
+      "employer_pension": 2000000,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 3210000,
+      "net": 16790000,
+      "employer_ecs": 200000,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "Kobo and rounding",
+    "input": {
+      "basic": "123456.78",
+      "housing": "23456.79",
+      "transport": "3456.78",
+      "nhf": true,
+      "annual_rent": "987654.32",
+      "nhis": "1234.56",
+      "other_deductions": "111.11"
+    },
+    "expected": {
+      "gross": 15037035,
+      "paye": 763383,
+      "pension": 1202963,
+      "employer_pension": 1503704,
+      "nhf": 308642,
+      "nhis": 123456,
+      "total_deductions": 2409555,
+      "net": 12627480,
+      "employer_ecs": 150370,
+      "employer_itf": 0
+    }
+  },
+  {
+    "name": "Taxable zero after reliefs",
+    "input": {
+      "basic": "100000",
+      "annual_reliefs": "1200000",
+      "pension": false
+    },
+    "expected": {
+      "gross": 10000000,
+      "paye": 0,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 0,
+      "net": 10000000,
+      "employer_ecs": 100000,
+      "employer_itf": 0
+    }
+  }
+]

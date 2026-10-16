@@ -67,6 +67,9 @@ export async function POST(request: Request) {
             );
           employee = { id: Number(result.lastInsertRowid) };
         }
+        db.prepare(
+          "INSERT OR IGNORE INTO company_employees(employee_id,company_id) VALUES (?,1)",
+        ).run(employee.id);
         const account = db
           .prepare(
             "INSERT INTO accounts(employee_id,email,password_hash,access) VALUES (?,?,?,'admin')",
@@ -99,7 +102,9 @@ export async function POST(request: Request) {
         { status: 429 },
       );
     const account = db
-      .prepare("SELECT id,password_hash FROM accounts WHERE email=?")
+      .prepare(
+        "SELECT a.id,a.password_hash FROM accounts a JOIN employees e ON e.id=a.employee_id WHERE a.email=? AND e.status='Active'",
+      )
       .get(email) as { id: number; password_hash: string } | undefined;
     const valid = verifyPassword(
       b.password,

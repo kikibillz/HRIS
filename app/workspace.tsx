@@ -74,6 +74,7 @@ export default function Workspace({
     departments: Department[];
     leaves: Leave[];
     user: User;
+    company: { name: string };
     balances: Balance[];
     events: Event[];
     managers: { id: number; employee_id: number; name: string }[];
@@ -256,11 +257,12 @@ export default function Workspace({
         <div className="workspace-switch">
           <span className="company-icon">P</span>
           <div>
-            <strong>People workspace</strong>
+            <strong>{data.company.name}</strong>
             <small>HR management</small>
           </div>
           <ChevronDown size={15} />
         </div>
+        <a className="nav-item" href="/operations">HR operations &amp; self-service <ArrowRight size={17}/></a>
         <p className="nav-label">WORKSPACE</p>
         <nav>
           {(isEmployee ? [

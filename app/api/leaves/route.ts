@@ -1,3 +1,4 @@
+import { employeeInCompany, notify } from "@/lib/tenant";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { allowances, validDate, workdays, balances } from "@/lib/leave";
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
       );
     db.exec("BEGIN IMMEDIATE");
     try {
-      if (!db.prepare("SELECT id FROM employees WHERE id=?").get(employeeId)) {
+      if (!employeeInCompany(employeeId, user.company_id)) {
         db.exec("ROLLBACK");
         return Response.json(
           { error: "Employee does not exist." },
@@ -97,6 +98,23 @@ export async function POST(request: Request) {
       db.prepare(
         "INSERT INTO leave_events(leave_id,actor_id,action,note) VALUES (?,?,'Submitted','')",
       ).run(result.lastInsertRowid, user.id);
+      notify(
+        user.employee_id,
+        "Leave request submitted",
+        `${b.type}: ${b.start} to ${b.end}`,
+      );
+      const approvers = db
+        .prepare(
+          "SELECT a.employee_id FROM accounts a JOIN company_employees ce ON ce.employee_id=a.employee_id WHERE ce.company_id=? AND (a.access='admin' OR a.id=(SELECT manager_id FROM reporting_lines WHERE employee_id=?))",
+        )
+        .all(user.company_id, employeeId) as { employee_id: number }[];
+      for (const a of approvers)
+        if (a.employee_id !== employeeId)
+          notify(
+            a.employee_id,
+            "Leave review requested",
+            `${b.type}: ${b.start} to ${b.end}`,
+          );
       db.exec("COMMIT");
       return Response.json({ ok: true }, { status: 201 });
     } catch (e) {
@@ -130,18 +148,23 @@ export async function PATCH(request: Request) {
     try {
       const leave = db
         .prepare("SELECT employee_id,status FROM leaves WHERE id=?")
-        .get(Number(b.id)) as { employee_id: number; status: string } | undefined;
-      if (!leave) {
+        .get(Number(b.id)) as
+        { employee_id: number; status: string } | undefined;
+      if (!leave || !employeeInCompany(leave.employee_id, user.company_id)) {
         db.exec("ROLLBACK");
         return Response.json({ error: "Request not found." }, { status: 404 });
       }
       if (
         b.status === "Cancelled"
           ? leave.employee_id !== user.employee_id
-          : user.access === "employee" || leave.employee_id === user.employee_id ||
-            (user.access === "manager" && !db.prepare(
-              "SELECT 1 FROM reporting_lines WHERE employee_id=? AND manager_id=?",
-            ).get(leave.employee_id, user.id))
+          : user.access === "employee" ||
+            leave.employee_id === user.employee_id ||
+            (user.access === "manager" &&
+              !db
+                .prepare(
+                  "SELECT 1 FROM reporting_lines WHERE employee_id=? AND manager_id=?",
+                )
+                .get(leave.employee_id, user.id))
       ) {
         db.exec("ROLLBACK");
         return Response.json(
@@ -167,6 +190,11 @@ export async function PATCH(request: Request) {
       db.prepare(
         "INSERT INTO leave_events(leave_id,actor_id,action,note) VALUES (?,?,?,?)",
       ).run(Number(b.id), user.id, b.status, b.note.trim());
+      notify(
+        leave.employee_id,
+        "Leave request updated",
+        `Your request is now ${b.status.toLowerCase()}. ${b.note.trim()}`,
+      );
       db.exec("COMMIT");
       return Response.json({ ok: true });
     } catch (e) {

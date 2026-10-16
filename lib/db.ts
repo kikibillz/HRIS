@@ -48,23 +48,23 @@ if (
   }
 }
 db.exec("COMMIT");
-export function snapshot() {
+export function snapshot(companyId: number) {
   return {
     employees: db
       .prepare(
-        "SELECT e.*, d.name AS department, r.manager_id, m.name AS manager_name, own.access AS account_access FROM employees e JOIN departments d ON d.id=e.department_id LEFT JOIN reporting_lines r ON r.employee_id=e.id LEFT JOIN accounts a ON a.id=r.manager_id LEFT JOIN employees m ON m.id=a.employee_id LEFT JOIN accounts own ON own.employee_id=e.id ORDER BY e.id DESC",
+        "SELECT e.*, cd.display_name AS department, r.manager_id, m.name AS manager_name, own.access AS account_access FROM employees e JOIN departments d ON d.id=e.department_id LEFT JOIN reporting_lines r ON r.employee_id=e.id LEFT JOIN accounts a ON a.id=r.manager_id LEFT JOIN employees m ON m.id=a.employee_id LEFT JOIN accounts own ON own.employee_id=e.id JOIN company_employees ce ON ce.employee_id=e.id JOIN company_departments cd ON cd.department_id=d.id WHERE ce.company_id=? ORDER BY e.id DESC",
       )
-      .all(),
+      .all(companyId),
     departments: db
       .prepare(
-        "SELECT d.*, COUNT(e.id) AS count FROM departments d LEFT JOIN employees e ON e.department_id=d.id GROUP BY d.id",
+        "SELECT d.id, cd.display_name AS name, COUNT(e.id) AS count FROM departments d JOIN company_departments cd ON cd.department_id=d.id LEFT JOIN employees e ON e.department_id=d.id WHERE cd.company_id=? GROUP BY d.id",
       )
-      .all(),
+      .all(companyId),
     leaves: db
       .prepare(
-        "SELECT l.*, e.name, e.role FROM leaves l JOIN employees e ON e.id=l.employee_id ORDER BY l.id DESC",
+        "SELECT l.*, e.name, e.role FROM leaves l JOIN employees e ON e.id=l.employee_id JOIN company_employees ce ON ce.employee_id=e.id WHERE ce.company_id=? ORDER BY l.id DESC",
       )
-      .all(),
+      .all(companyId),
   };
 }
 
@@ -116,3 +116,29 @@ CREATE TABLE IF NOT EXISTS security_events (
  actor_id INTEGER REFERENCES accounts(id), action TEXT NOT NULL,
  created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );`);
+
+// Tenant membership is additive: original employee/account rows stay byte-for-byte intact.
+db.exec(`
+CREATE TABLE IF NOT EXISTS companies(id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT NOT NULL DEFAULT 'NG', currency TEXT NOT NULL DEFAULT 'NGN', created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+INSERT OR IGNORE INTO companies(id,name) VALUES(1,'PeopleOS workspace');
+CREATE TABLE IF NOT EXISTS company_employees(employee_id INTEGER PRIMARY KEY REFERENCES employees(id), company_id INTEGER NOT NULL REFERENCES companies(id));
+CREATE INDEX IF NOT EXISTS company_employee_scope ON company_employees(company_id,employee_id);
+CREATE TABLE IF NOT EXISTS company_departments(department_id INTEGER PRIMARY KEY REFERENCES departments(id), company_id INTEGER NOT NULL REFERENCES companies(id), display_name TEXT NOT NULL, UNIQUE(company_id,display_name));
+INSERT OR IGNORE INTO company_employees SELECT id,1 FROM employees;
+INSERT OR IGNORE INTO company_departments SELECT id,1,name FROM departments;
+CREATE TABLE IF NOT EXISTS hr_records(id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL REFERENCES companies(id), kind TEXT NOT NULL, data TEXT NOT NULL DEFAULT '{}', employee_id INTEGER REFERENCES employees(id), reviewer_id INTEGER REFERENCES employees(id), title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'Open', progress INTEGER NOT NULL DEFAULT 0, due TEXT NOT NULL DEFAULT '', reference_id INTEGER REFERENCES hr_records(id), created_by INTEGER NOT NULL REFERENCES accounts(id), created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+CREATE INDEX IF NOT EXISTS hr_record_scope ON hr_records(company_id,kind);
+CREATE TABLE IF NOT EXISTS attendance(id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id), clock_in TEXT NOT NULL, clock_out TEXT, note TEXT NOT NULL DEFAULT '');
+CREATE UNIQUE INDEX IF NOT EXISTS attendance_one_open ON attendance(employee_id) WHERE clock_out IS NULL;
+CREATE TABLE IF NOT EXISTS documents(id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL REFERENCES companies(id), employee_id INTEGER REFERENCES employees(id), name TEXT NOT NULL, mime TEXT NOT NULL, bytes BLOB NOT NULL, uploaded_by INTEGER NOT NULL REFERENCES accounts(id), created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id), title TEXT NOT NULL, body TEXT NOT NULL, read_at TEXT, created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL REFERENCES companies(id), actor_id INTEGER NOT NULL REFERENCES accounts(id), action TEXT NOT NULL, target TEXT NOT NULL, created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+CREATE TABLE IF NOT EXISTS compensation(employee_id INTEGER PRIMARY KEY REFERENCES employees(id), data TEXT NOT NULL, updated TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+CREATE TABLE IF NOT EXISTS payroll_runs(id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL REFERENCES companies(id), period TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'Draft', policy TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES accounts(id), created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), UNIQUE(company_id,period));
+CREATE TABLE IF NOT EXISTS payroll_items(id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL REFERENCES payroll_runs(id), employee_id INTEGER NOT NULL REFERENCES employees(id), details TEXT NOT NULL, UNIQUE(run_id,employee_id));
+CREATE TABLE IF NOT EXISTS payments(id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL UNIQUE REFERENCES payroll_runs(id), reference TEXT NOT NULL, paid_on TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES accounts(id));
+CREATE TABLE IF NOT EXISTS company_settings(company_id INTEGER PRIMARY KEY REFERENCES companies(id), payroll_policy TEXT NOT NULL DEFAULT '{}');
+`);
+
+db.exec(`CREATE TABLE IF NOT EXISTS hr_record_events(id INTEGER PRIMARY KEY,record_id INTEGER NOT NULL REFERENCES hr_records(id),status TEXT NOT NULL,actor_id INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+CREATE TABLE IF NOT EXISTS assistant_usage(account_id INTEGER PRIMARY KEY REFERENCES accounts(id),calls INTEGER NOT NULL,reset_at INTEGER NOT NULL);`);
