@@ -39,7 +39,36 @@ const child = spawn(process.execPath, [server], {
   stdio: "inherit",
   env: process.env,
 });
+const worker =
+  process.env.HRIS_REMINDER_WORKER === "0"
+    ? null
+    : spawn(process.execPath, ["scripts/onboarding-reminders.mjs", "--watch"], {
+        stdio: "inherit",
+        env: process.env,
+      });
+let stopping = false;
+function stop(signal = "SIGTERM") {
+  stopping = true;
+  child.kill(signal);
+  worker?.kill(signal);
+}
 for (const signal of ["SIGINT", "SIGTERM"])
-  process.on(signal, () => child.kill(signal));
-child.on("error", () => fail("Unable to start the production server."));
-child.on("exit", (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
+  process.on(signal, () => stop(signal));
+child.on("error", () => {
+  stop();
+  fail("Unable to start the production server.");
+});
+child.on("exit", (code) => {
+  stop();
+  process.exit(code ?? 1);
+});
+worker?.on("error", () => {
+  stop();
+  fail("Unable to start the reminder worker.");
+});
+worker?.on("exit", () => {
+  if (!stopping) {
+    stop();
+    process.exit(1);
+  }
+});

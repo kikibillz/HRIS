@@ -1,7 +1,7 @@
 import { currentUser, requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { onboardingDay, onboardingProgress } from "@/lib/onboarding-progress";
-import { audit, notify } from "@/lib/tenant";
+import { deliverOnboardingReminder } from "@/lib/onboarding-reminders";
 export const dynamic = "force-dynamic";
 export async function GET() {
   const user = await currentUser();
@@ -48,30 +48,14 @@ export async function POST(request: Request) {
           { status: 404 },
         );
       }
-      const target = `${assignment.id}:${today}`;
-      const already = !!db
-        .prepare(
-          "SELECT 1 FROM audit_log WHERE company_id=? AND action='Onboarding overdue reminder' AND target=?",
-        )
-        .get(user.company_id, target);
-      const sent = assignment.overdue > 0 && !already;
-      if (sent) {
-        notify(
-          assignment.employee_id,
-          "Overdue onboarding tasks",
-          `${assignment.title}: ${assignment.overdue} overdue task${assignment.overdue === 1 ? "" : "s"}. Open Onboarding checklists to review and complete them.`,
-        );
-        audit(user, "Onboarding overdue reminder", target);
-      }
+      const result = deliverOnboardingReminder(
+        user.company_id,
+        assignment.id,
+        today,
+        user.id,
+      );
       db.exec("COMMIT");
-      return Response.json({
-        sent,
-        reason: sent
-          ? "Reminder added to employee notifications."
-          : already
-            ? "A reminder was already sent today."
-            : "No overdue open tasks.",
-      });
+      return Response.json(result);
     } catch (e) {
       db.exec("ROLLBACK");
       throw e;

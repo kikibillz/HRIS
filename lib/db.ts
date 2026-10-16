@@ -183,3 +183,9 @@ CREATE TABLE IF NOT EXISTS payroll_export_artifacts(id INTEGER PRIMARY KEY,compa
 db.exec(
   `CREATE TABLE IF NOT EXISTS company_recovery_identity(company_id INTEGER PRIMARY KEY REFERENCES companies(id),public_id TEXT NOT NULL UNIQUE);`,
 );
+
+// Reminder automation is opt-in; delivery keys survive retries and restarts.
+db.exec(`CREATE TABLE IF NOT EXISTS onboarding_reminder_settings(company_id INTEGER PRIMARY KEY REFERENCES companies(id),enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1)),hour INTEGER NOT NULL DEFAULT 9 CHECK(hour BETWEEN 0 AND 23),updated_by INTEGER NOT NULL REFERENCES accounts(id));
+CREATE TABLE IF NOT EXISTS onboarding_reminder_deliveries(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),assignment_id INTEGER NOT NULL REFERENCES hr_records(id),day TEXT NOT NULL,source TEXT NOT NULL CHECK(source IN ('manual','automatic')),actor_id INTEGER REFERENCES accounts(id),notification_id INTEGER NOT NULL REFERENCES notifications(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(company_id,assignment_id,day));
+CREATE TABLE IF NOT EXISTS onboarding_reminder_runs(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),day TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('Running','Completed','Failed')),sent INTEGER NOT NULL DEFAULT 0,skipped INTEGER NOT NULL DEFAULT 0,error TEXT NOT NULL DEFAULT '',started TEXT NOT NULL,finished TEXT,UNIQUE(company_id,day));
+CREATE TABLE IF NOT EXISTS onboarding_worker_state(id INTEGER PRIMARY KEY CHECK(id=1),last_tick TEXT NOT NULL,last_error TEXT NOT NULL DEFAULT '');`);

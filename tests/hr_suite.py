@@ -136,6 +136,33 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    assert not a.expect(200,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})['sent']
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE hr_records SET status='Done' WHERE kind='tasks' AND reference_id=?",(worker_assignment['id'],))
    assert manager.expect(200,'/api/onboarding-progress')['assignments'][0]['overdue']==0
+   # The automatic worker is opt-in, company-scoped, restart-safe and shares manual keys.
+   guest.expect(401,'/api/reminder-automation')
+   for c in [worker,manager]:
+    c.expect(403,'/api/reminder-automation');c.expect(403,'/api/reminder-automation',{'enabled':True,'hour':0})
+   assert a.expect(200,'/api/reminder-automation')['settings']['enabled']==0
+   a.expect(400,'/api/reminder-automation',{'enabled':True,'hour':24})
+   a.expect(403,'/api/reminder-automation',{'enabled':True,'hour':0},origin='https://untrusted.example')
+   def tick():
+    result=subprocess.run(['node','scripts/onboarding-reminders.mjs','--once'],env={**os.environ,'HRIS_DATA_DIR':directory},capture_output=True,text=True,timeout=30)
+    assert result.returncode==0,result.stderr
+   tick();assert not a.expect(200,'/api/reminder-automation')['runs']
+   auto_template=a.expect(201,'/api/onboarding',{**onboarding,'title':'Automatic reminder test','items':[{'title':'Finish welcome pack','body':'Read the guide','days':0}]})['id']
+   a.expect(200,'/api/onboarding',{'action':'assign','template_id':auto_template,'employee_ids':[wid,pid],'start_date':'2026-03-01'})
+   auto_rows=a.expect(200,'/api/onboarding-progress')['assignments'];auto_worker=next(x for x in auto_rows if x['title']=='Automatic reminder test' and x['employee_id']==wid);auto_peer=next(x for x in auto_rows if x['title']=='Automatic reminder test' and x['employee_id']==pid)
+   assert a.expect(200,'/api/onboarding-progress',{'action':'remind','assignment_id':auto_worker['id']})['sent']
+   a.expect(200,'/api/reminder-automation',{'enabled':True,'hour':0})
+   before_peer=len(peer.expect(200,'/api/notifications')['rows'])
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:list(pool.map(lambda _:tick(),range(2)))
+   monitor=a.expect(200,'/api/reminder-automation');assert monitor['worker']['healthy'] and len(monitor['runs'])==1 and monitor['runs'][0]['status']=='Completed' and monitor['runs'][0]['sent']==1
+   assert {x['source'] for x in monitor['deliveries']}=={'manual','automatic'}
+   assert len(peer.expect(200,'/api/notifications')['rows'])==before_peer+1
+   assert not a.expect(200,'/api/onboarding-progress',{'action':'remind','assignment_id':auto_peer['id']})['sent']
+   tick();assert len(peer.expect(200,'/api/notifications')['rows'])==before_peer+1
+   assert not b.expect(200,'/api/reminder-automation')['runs'] and not b.expect(200,'/api/reminder-automation')['deliveries']
+   notification=peer.expect(200,'/api/notifications')['rows'][0]['id'];peer.expect(200,'/api/notifications',{'id':notification},'PATCH')
+   assert any(x['source']=='automatic' and x['read_at'] for x in a.expect(200,'/api/reminder-automation')['deliveries'])
+   a.expect(200,'/api/reminder-automation',{'enabled':False,'hour':9})
    task=records(a,'tasks',{'title':'Read handbook','employee_id':wid,'due':'2026-10-30'});worker.expect(200,'/api/records/tasks',{'id':task,'status':'Done'},'PATCH')
    template=records(a,'templates',{'title':'Welcome letter','body':'Welcome {{employee_name}} to {{company_name}} as {{role}} on {{start_date}}.'});letter=records(a,'letters',{'title':'Employment letter','employee_id':wid,'reference_id':template});assert 'Welcome Alpha Worker to Alpha' in worker.expect(200,'/api/records/letters')['rows'][0]['body'];assert not b.expect(200,'/api/records/letters')['rows'];assert not manager.expect(200,'/api/records/letters')['rows']
    policy=records(a,'policies',{'title':'Remote working','body':'Remote working requires manager approval.','status':'Published'});result=worker.expect(200,'/api/policy-assistant',{'question':'remote working approval'});assert result['sources'][0]['title']=='Remote working' and result['mode']=='Policy search';assert not b.expect(200,'/api/policy-assistant',{'question':'remote working approval'})['sources']

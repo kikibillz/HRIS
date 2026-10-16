@@ -27,6 +27,11 @@ try:
     port=run('port',name,'3000/tcp').rsplit(':',1)[1]
     base='http://127.0.0.1:'+port
     wait()
+    heartbeat="const {DatabaseSync}=require('node:sqlite'); const d=new DatabaseSync('/var/lib/hris/hris.sqlite',{readOnly:true}); console.log(JSON.stringify(d.prepare('SELECT last_tick FROM onboarding_worker_state WHERE id=1').get()));"
+    for _ in range(30):
+        if run('exec',name,'node','-e',heartbeat):break
+        time.sleep(1)
+    assert json.loads(run('exec',name,'node','-e',heartbeat))['last_tick']
     assert request('/api/health/live')[2]==b'{"status":"ok"}'
     body={'company':'Production test','name':'Owner','email':'owner@example.com','password':secrets.token_urlsafe(24)}
     assert request('/api/companies',body,origin='https://evil.example.com')[0]==403

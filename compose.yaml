@@ -6,6 +6,7 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     environment:
+      HRIS_REMINDER_WORKER: ${HRIS_REMINDER_WORKER:-1}
       HRIS_PUBLIC_ORIGIN: ${HRIS_PUBLIC_ORIGIN:?Set the public HTTPS origin}
     volumes:
       - hris-data:/var/lib/hris
