@@ -51,7 +51,7 @@ Optional real-browser tests require Python Playwright (`pip install playwright`)
 
 ## Leave workflow and current policy
 
-- Employees submit and cancel their own pending requests and see only their own leave reasons and history. The employee directory is visible to all signed-in staff.
+- Employees submit and cancel their own pending requests and see only their own leave reasons and history. Their workspace includes a read-only own profile, balances, requests, cancellation, and history. Other employees, the directory, and department counts are excluded server-side from employee page data. Managers and administrators retain their existing directory and team access.
 - Managers can review other employees' requests across the workspace. Administrators also manage employees and departments and can submit leave on behalf of an employee. Nobody can approve or decline their own request.
 - Annual leave: 20 days; sick leave: 10 days; personal leave: 5 days per calendar year. These are **prototype allowances**, not claims about statutory entitlements.
 - Counts use Monday–Friday, excluding weekends. Public holidays, carry-over, prorating, and custom policies are not implemented.

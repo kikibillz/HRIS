@@ -75,12 +75,14 @@ export default function Workspace({
   };
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState("Overview");
+  const [tab, setTab] = useState(data.user.access === "employee" ? "My profile" : "Overview");
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [mobile, setMobile] = useState(false);
+  const isEmployee = data.user.access === "employee";
+  const profile = data.employees.find((e) => e.id === data.user.employee_id);
   const isAdmin = data.user.access === "admin";
   const canReview = data.user.access !== "employee";
   const [decision, setDecision] = useState<{
@@ -231,12 +233,15 @@ export default function Workspace({
         </div>
         <p className="nav-label">WORKSPACE</p>
         <nav>
-          {[
+          {(isEmployee ? [
+            { name: "My profile", icon: Users },
+            { name: "Leave requests", icon: CalendarDays },
+          ] : [
             { name: "Overview", icon: LayoutDashboard },
             { name: "Employees", icon: Users },
             { name: "Departments", icon: Building2 },
             { name: "Leave requests", icon: CalendarDays },
-          ].map(({ name, icon: Icon }) => (
+          ]).map(({ name, icon: Icon }) => (
             <button
               key={name}
               className={tab === name ? "nav-item selected" : "nav-item"}
@@ -261,7 +266,7 @@ export default function Workspace({
             <Leaf size={30} />
           </div>
           <div className="profile">
-            <span className="avatar admin">HR</span>
+            <span className="avatar admin">{initials(data.user.name)}</span>
             <div>
               <strong>{data.user.name}</strong>
               <small>{data.user.access} workspace</small>
@@ -299,20 +304,22 @@ export default function Workspace({
               Sign out
             </button>
             <span className="demo-badge">Prototype</span>
-            <span className="avatar admin small-avatar">HR</span>
+            <span className="avatar admin small-avatar">{initials(data.user.name)}</span>
           </div>
         </header>
         <main>
           <div className="heading">
             <div>
-              <p className="eyebrow">YOUR PEOPLE, CONNECTED</p>
+              <p className="eyebrow">{isEmployee ? "YOUR EMPLOYEE WORKSPACE" : "YOUR PEOPLE, CONNECTED"}</p>
               <h1>
                 {tab === "Overview"
                   ? "A good day starts with your people."
                   : tab}
               </h1>
               <p className="subtitle">
-                {tab === "Overview"
+                {tab === "My profile"
+                  ? "Your employment details. Contact your administrator to request a correction."
+                  : tab === "Overview"
                   ? "Here’s what’s happening across your team today."
                   : tab === "Employees"
                     ? "Meet the people who make it all happen."
@@ -345,6 +352,23 @@ export default function Workspace({
             <p role="alert" className="error">
               {error}
             </p>
+          )}
+          {tab === "My profile" && profile && (
+            <section className="panel">
+              <div className="section-head"><h2>My profile</h2></div>
+              <dl className="profile-details">
+                {Object.entries({
+                  Name: profile.name, Email: profile.email,
+                  "Job title": profile.role, Department: profile.department,
+                  "Joined on": profile.joined, Status: profile.status,
+                }).map(([label, value]) => (
+                  <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+                ))}
+              </dl>
+              <button className="secondary" onClick={() => setTab("Leave requests")}>
+                View my balances and requests <ArrowRight size={16} />
+              </button>
+            </section>
           )}
           {tab === "Overview" && (
             <>
@@ -582,7 +606,7 @@ export default function Workspace({
                         <th>Leave type</th>
                         <th>Dates</th>
                         <th>Status</th>
-                        <th>Review</th>
+                        <th>{canReview ? "Review" : "Action"}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -614,7 +638,7 @@ export default function Workspace({
                           <td>
                             {l.status === "Pending"
                               ? decisionButtons(l)
-                              : "Reviewed"}
+                              : "—"}
                           </td>
                         </tr>
                       ))}
@@ -626,6 +650,7 @@ export default function Workspace({
                 </div>
               </section>
               <section className="panel history-panel">
+                {!data.leaves.length && <p className="empty">Your request history will appear here after you submit leave.</p>}
                 <div className="section-head">
                   <h2>Request history</h2>
                 </div>

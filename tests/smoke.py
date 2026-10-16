@@ -48,6 +48,15 @@ with tempfile.TemporaryDirectory(prefix='hris-smoke-') as directory:
             admin.expect(400,'/api/employees',body)
             employee.expect(200,'/api/auth',{'email':'worker@example.test','password':password})
             manager.expect(200,'/api/auth',{'email':'manager@example.test','password':password})
+            employee_html=employee.expect(200)
+            assert 'My profile' in employee_html and 'worker@example.test' in employee_html
+            for private in ['olivia@peopleos.demo','phoenix@peopleos.demo','manager@example.test','Total employees','Employee directory']:
+                assert private not in employee_html, f'Employee response leaks {private}'
+            for reviewer in [admin,manager]:
+                html=reviewer.expect(200)
+                assert 'olivia@peopleos.demo' in html and 'manager@example.test' in html
+            manager.expect(403,'/api/employees',body)
+            manager.expect(403,'/api/departments',{'name':'Forbidden manager'})
             employee.expect(403,'/api/employees',body)
             employee.expect(403,'/api/departments',{'name':'Forbidden'})
             admin.expect(201,'/api/departments',{'name':'Quality Assurance'})
@@ -64,6 +73,10 @@ with tempfile.TemporaryDirectory(prefix='hris-smoke-') as directory:
             employee.expect(403,'/api/leaves',{'id':3,'status':'Approved','note':''},'PATCH')
             manager.expect(200,'/api/leaves',{'id':3,'status':'Approved','note':'Enjoy your break'},'PATCH')
             manager.expect(409,'/api/leaves',{'id':3,'status':'Declined','note':'Changed mind'},'PATCH')
+            employee.expect(403,'/api/leaves',{'id':1,'status':'Declined','note':'Forged'},'PATCH')
+            employee.expect(403,'/api/leaves',{'id':1,'status':'Cancelled','note':''},'PATCH')
+            employee.expect(403,'/api/leaves',leave(),origin='https://untrusted.example')
+            employee.expect(409,'/api/leaves',{'id':3,'status':'Cancelled','note':''},'PATCH')
             manager.expect(201,'/api/leaves',leave()) # id 4 manager own
             manager.expect(403,'/api/leaves',{'id':4,'status':'Approved','note':''},'PATCH')
             employee.expect(403,'/api/leaves',{'id':4,'status':'Cancelled','note':''},'PATCH')
@@ -73,6 +86,8 @@ with tempfile.TemporaryDirectory(prefix='hris-smoke-') as directory:
             admin.expect(200,'/api/leaves',{'id':5,'status':'Declined','note':'Please choose another week'},'PATCH')
             employee.expect(201,'/api/leaves',leave(monday+datetime.timedelta(days=7))) # released reservation id 6
             employee.expect(200,'/api/leaves',{'id':6,'status':'Cancelled','note':''},'PATCH')
+            employee.expect(409,'/api/leaves',{'id':6,'status':'Cancelled','note':''},'PATCH')
+            employee.expect(201,'/api/leaves',leave(monday+datetime.timedelta(days=7))) # cancelled balance and dates released
             _,html=employee.request()
             assert 'Enjoy your break' in html and 'Plans changed' not in html, 'Leave history must be scoped to requester'
             with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
@@ -80,6 +95,16 @@ with tempfile.TemporaryDirectory(prefix='hris-smoke-') as directory:
                 assert db.execute('SELECT COUNT(*) FROM leave_events WHERE leave_id=3').fetchone()[0]==2
                 assert db.execute('SELECT COUNT(*) FROM employees').fetchone()[0]==11
                 assert all(password not in row[0] for row in db.execute('SELECT password_hash FROM accounts'))
+            # Restart the app on the same test database; existing accounts, sessions and history survive.
+            server.terminate();server.wait(timeout=10)
+            server=subprocess.Popen(['node','node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port','3101'],env={**os.environ,'HRIS_DATA_DIR':directory},stdout=log,stderr=log)
+            for _ in range(60):
+                try:
+                    if guest.request('/login')[0]==200:break
+                except (OSError,TimeoutError):pass
+                time.sleep(.25)
+            assert 'Enjoy your break' in employee.expect(200)
+            guest.expect(403,'/api/auth',{'action':'setup','name':'Replacement','email':'replacement@example.test','password':password})
             admin.expect(200,'/api/auth',method='DELETE')
             admin.expect(401,'/api/leaves',leave())
             for _ in range(10):guest.expect(401,'/api/auth',{'email':'worker@example.test','password':'wrong-password-123'})

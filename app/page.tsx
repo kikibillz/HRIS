@@ -7,7 +7,15 @@ export const dynamic = "force-dynamic";
 export default async function Page() {
   const user = await currentUser();
   if (!user) redirect("/login");
-  const data = snapshot();
+  // Scope before serialization: hiding navigation cannot protect client props.
+  const data = user.access === "employee"
+    ? {
+        employees: db.prepare(
+          "SELECT e.*, d.name AS department FROM employees e JOIN departments d ON d.id=e.department_id WHERE e.id=?",
+        ).all(user.employee_id),
+        departments: [],
+      }
+    : snapshot();
   const leaves = db
     .prepare(
       `SELECT l.*, e.name,e.role,COALESCE(d.reason,'Imported prototype request') AS reason FROM leaves l JOIN employees e ON e.id=l.employee_id LEFT JOIN leave_details d ON d.leave_id=l.id ${user.access === "employee" ? "WHERE l.employee_id=?" : ""} ORDER BY l.id DESC`,
