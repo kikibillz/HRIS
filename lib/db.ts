@@ -193,7 +193,7 @@ CREATE TABLE IF NOT EXISTS onboarding_worker_state(id INTEGER PRIMARY KEY CHECK(
 // Interview evidence and hiring decisions are additive; existing applicant rows stay intact.
 db.exec(`CREATE TABLE IF NOT EXISTS recruiting_scorecards(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),applicant_id INTEGER NOT NULL REFERENCES hr_records(id),interviewer_id INTEGER NOT NULL REFERENCES accounts(id),interviewer_name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'Assigned' CHECK(status IN ('Assigned','Submitted')),ratings TEXT NOT NULL DEFAULT '{}',notes TEXT NOT NULL DEFAULT '',recommendation TEXT NOT NULL DEFAULT '',created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),submitted TEXT,UNIQUE(applicant_id,interviewer_id));
 CREATE TABLE IF NOT EXISTS recruiting_approvals(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),applicant_id INTEGER NOT NULL REFERENCES hr_records(id),requested_by INTEGER NOT NULL REFERENCES accounts(id),approver_id INTEGER NOT NULL REFERENCES accounts(id),snapshot TEXT NOT NULL,snapshot_hash TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'Pending' CHECK(status IN ('Pending','Approved','Rejected')),request_note TEXT NOT NULL,decision_note TEXT NOT NULL DEFAULT '',created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),decided TEXT,CHECK(requested_by<>approver_id));
-CREATE UNIQUE INDEX IF NOT EXISTS recruiting_one_pending ON recruiting_approvals(applicant_id) WHERE status='Pending';`);
+`);
 
 // One reviewed handoff per candidate; account and employee profiles are never overwritten.
 db.exec(
@@ -205,3 +205,38 @@ db.exec(`CREATE TABLE IF NOT EXISTS recruiting_offers(id INTEGER PRIMARY KEY,com
 CREATE UNIQUE INDEX IF NOT EXISTS recruiting_one_issued_offer ON recruiting_offers(applicant_id) WHERE status='Issued';
 CREATE TABLE IF NOT EXISTS recruiting_offer_links(token_hash TEXT PRIMARY KEY,offer_id INTEGER NOT NULL UNIQUE REFERENCES recruiting_offers(id),expires INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS recruiting_offer_events(id INTEGER PRIMARY KEY,offer_id INTEGER NOT NULL REFERENCES recruiting_offers(id),action TEXT NOT NULL,actor_id INTEGER REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));`);
+
+// Close unanswered requests without rewriting their original status, evidence or decision fields.
+if (
+  !db
+    .prepare("PRAGMA table_info(recruiting_approvals)")
+    .all()
+    .some((c) => c.name === "closed_state") ||
+  db
+    .prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='index' AND name='recruiting_one_pending'",
+    )
+    .get()
+) {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    if (
+      !db
+        .prepare("PRAGMA table_info(recruiting_approvals)")
+        .all()
+        .some((c) => c.name === "closed_state")
+    )
+      db.exec(
+        "ALTER TABLE recruiting_approvals ADD COLUMN closed_state TEXT NOT NULL DEFAULT '' CHECK(closed_state IN ('','Withdrawn','Reassigned'))",
+      );
+    db.exec(
+      "DROP INDEX IF EXISTS recruiting_one_pending; CREATE UNIQUE INDEX IF NOT EXISTS recruiting_one_open_pending ON recruiting_approvals(applicant_id) WHERE status='Pending' AND closed_state='';",
+    );
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS recruiting_one_open_pending ON recruiting_approvals(applicant_id) WHERE status='Pending' AND closed_state='';
+CREATE TABLE IF NOT EXISTS recruiting_approval_closures(approval_id INTEGER PRIMARY KEY REFERENCES recruiting_approvals(id),company_id INTEGER NOT NULL REFERENCES companies(id),action TEXT NOT NULL CHECK(action IN ('Withdrawn','Reassigned')),replacement_id INTEGER UNIQUE REFERENCES recruiting_approvals(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),reason TEXT NOT NULL,created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),CHECK((action='Withdrawn' AND replacement_id IS NULL) OR (action='Reassigned' AND replacement_id IS NOT NULL)));`);

@@ -19,6 +19,12 @@ type Approval = {
   requester_name: string;
   approver_name: string;
   status: string;
+  closed_state: string;
+  display_status: string;
+  closure_reason: string | null;
+  replacement_id: number | null;
+  reassignment_reason: string | null;
+  previous_request_id: number | null;
   request_note: string;
   decision_note: string;
   snapshot: string;
@@ -340,18 +346,109 @@ export default function RecruitingPanel({ context }: { context: Context }) {
                 .map((a) => (
                   <section className="panel ops-form" key={a.id}>
                     <h2>
-                      Hiring request #{a.id} · {a.status}
+                      Hiring request #{a.id} · {a.display_status}
                     </h2>
                     <p>
                       Requested by {a.requester_name} · Approver{" "}
                       {a.approver_name}
                     </p>
                     <p>{a.request_note}</p>
+                    {a.closure_reason && (
+                      <p>
+                        {a.display_status} reason: {a.closure_reason}
+                        {a.replacement_id
+                          ? ` · Replacement request #${a.replacement_id}`
+                          : ""}
+                      </p>
+                    )}
+                    {a.reassignment_reason && (
+                      <p>
+                        Reassigned from request #{a.previous_request_id}:{" "}
+                        {a.reassignment_reason}
+                      </p>
+                    )}
                     {a.decision_note && (
                       <p>Decision rationale: {a.decision_note}</p>
                     )}
                     <FrozenEvidence snapshot={a.snapshot} />
+                    {admin && a.status === "Pending" && !a.closed_state && (
+                      <details>
+                        <summary>Manage unanswered request #{a.id}</summary>
+                        <p>
+                          Withdraw closes this request without a decision.
+                          Reassignment keeps the exact frozen evidence and
+                          removes the previous approver’s access. Stale evidence
+                          still needs a new review request.
+                        </p>
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const f = new FormData(e.currentTarget);
+                            void perform({
+                              action: "withdraw",
+                              approval_id: a.id,
+                              note: f.get("note"),
+                            });
+                          }}
+                        >
+                          <label>
+                            Withdrawal reason for request {a.id}
+                            <textarea name="note" required maxLength={2000} />
+                          </label>
+                          <button className="secondary" disabled={busy}>
+                            Withdraw hiring request #{a.id}
+                          </button>
+                        </form>
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const f = new FormData(e.currentTarget);
+                            void perform({
+                              action: "reassign",
+                              approval_id: a.id,
+                              approver_id: Number(f.get("approver_id")),
+                              note: f.get("note"),
+                            });
+                          }}
+                        >
+                          <label>
+                            Replacement approver
+                            <select
+                              required
+                              aria-label={`Replacement approver for request ${a.id}`}
+                              name="approver_id"
+                            >
+                              <option value="">Choose replacement</option>
+                              {data.interviewers
+                                .filter(
+                                  (i) =>
+                                    ["admin", "manager"].includes(i.access) &&
+                                    ![
+                                      context.user.id,
+                                      a.requested_by,
+                                      a.approver_id,
+                                    ].includes(i.id),
+                                )
+                                .map((i) => (
+                                  <option key={i.id} value={i.id}>
+                                    {i.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                          <label>
+                            Reassignment reason for request {a.id}
+                            <textarea name="note" required maxLength={2000} />
+                          </label>
+                          <button className="secondary" disabled={busy}>
+                            Reassign hiring request #{a.id}
+                          </button>
+                        </form>
+                      </details>
+                    )}
+
                     {a.status === "Pending" &&
+                      !a.closed_state &&
                       a.approver_id === context.user.id && (
                         <form
                           onSubmit={(e) => {

@@ -195,6 +195,46 @@ with tempfile.TemporaryDirectory(prefix='hris-recruiting-') as directory:
    revised=a.call(201,'/api/offers',{**issue,'terms':'Revised terms reviewed with candidate.'});revised_token=revised['path'].split('#token=')[1]
    guest.call(200,'/api/offer-response',{**response,'token':revised_token});a.call(200,'/api/records/applicants',{'id':oid,'status':'Hired'},'PATCH')
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:assert db.execute('SELECT * FROM accounts ORDER BY id').fetchall()==credentials
+   # Withdraw and reassign preserve evidence; former approvers lose access immediately.
+   replacement=Client()
+   a.call(201,'/api/employees',{'name':'Replacement Manager','email':'replacement@example.test','role':'Manager','department_id':dept,'access':'manager','password':password});replacement.call(200,'/api/auth',{'email':'replacement@example.test','password':password})
+   replacement_user=replacement.call(200,'/api/operations')['user'];replacement_id=replacement_user['id']
+   control=applicant('Approval controls candidate');a.call(200,body={'action':'assign','applicant_id':control,'interviewer_id':aid});control_card=next(c for c in a.call(200)['cards'] if c['applicant_id']==control);a.call(200,body={**score,'card_id':control_card['id']});a.call(200,body={**request,'applicant_id':control})
+   pending=next(v for v in a.call(200)['approvals'] if v['applicant_id']==control)
+   reassign={'action':'reassign','approval_id':pending['id'],'approver_id':replacement_id,'note':'The original approver is unavailable.'}
+   guest.call(401,body=reassign)
+   for c in [reviewer,manager,replacement]:c.call(403,body=reassign)
+   b.call(400,body=reassign);a.call(403,body=reassign,origin='https://untrusted.example')
+   a.call(400,body={**reassign,'note':''})
+   for target in [aid,mid,rid,bid]:a.call(400,body={**reassign,'approver_id':target})
+   reassigned=a.call(200,body=reassign)['replacement_id'];history=a.call(200)['approvals'];old=next(v for v in history if v['id']==pending['id']);new_request=next(v for v in history if v['id']==reassigned)
+   assert old['display_status']=='Reassigned' and old['status']=='Pending' and old['decision_note']=='' and old['decided'] is None
+   assert (new_request['snapshot'],new_request['snapshot_hash'],new_request['requested_by'],new_request['request_note'])==(pending['snapshot'],pending['snapshot_hash'],pending['requested_by'],pending['request_note'])
+   assert not any(v['id']==pending['id'] for v in manager.call(200)['approvals']) and not any(c['id']==control for c in manager.call(200)['candidates'])
+   manager.call(400,body={**decision,'approval_id':pending['id']})
+   replacement.call(200,body={**decision,'approval_id':reassigned})
+   a.call(400,body={'action':'withdraw','approval_id':reassigned,'note':'Cannot erase a decision.'});a.call(400,body={**reassign,'approval_id':reassigned,'approver_id':mid})
+   # Closing a newer request must not fall back to an older approval.
+   a.call(200,body={**request,'applicant_id':control});pending2=next(v for v in a.call(200)['approvals'] if v['applicant_id']==control)
+   a.call(200,body={'action':'withdraw','approval_id':pending2['id'],'note':'Candidate review needs to restart.'})
+   closed=next(v for v in a.call(200)['approvals'] if v['id']==pending2['id']);assert closed['display_status']=='Withdrawn' and closed['snapshot']==pending2['snapshot']
+   a.call(400,'/api/records/applicants',{'id':control,'status':'Offer'},'PATCH')
+   a.call(200,body={**request,'applicant_id':control});pending3=next(v for v in a.call(200)['approvals'] if v['applicant_id']==control)
+   a.call(200,'/api/records/applicants',{'id':control,'body':'Changed evidence after the request'},'PATCH')
+   stale=a.call(200,body={**reassign,'approval_id':pending3['id']})['replacement_id'];replacement.call(400,body={**decision,'approval_id':stale})
+   a.call(200,body={'action':'withdraw','approval_id':stale,'note':'Fresh evidence requires a fresh request.'})
+   a.call(200,body={**request,'applicant_id':control});racing=next(v for v in a.call(200)['approvals'] if v['applicant_id']==control)
+   actions=[{'action':'withdraw','approval_id':racing['id'],'note':'Close this request.'},{**reassign,'approval_id':racing['id']}]
+   def manage(body):
+    req=urllib.request.Request(BASE+'/api/recruiting',data=json.dumps(body).encode(),headers={'Origin':BASE,'Content-Type':'application/json'})
+    try:r=a.http.open(req,timeout=15)
+    except urllib.error.HTTPError as e:r=e
+    with r:return r.status
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:assert sorted(pool.map(manage,actions))==[200,400]
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT count(*) FROM recruiting_approval_closures WHERE approval_id=?',(racing['id'],)).fetchone()[0]==1
+    assert db.execute("SELECT count(*) FROM recruiting_approvals WHERE applicant_id=? AND status='Pending' AND closed_state=''",(control,)).fetchone()[0]<=1
+    assert not db.execute('PRAGMA foreign_key_check').fetchall()
    if browser_mode:
     from playwright.sync_api import sync_playwright,expect
     new=applicant('Browser candidate')
@@ -205,8 +245,12 @@ with tempfile.TemporaryDirectory(prefix='hris-recruiting-') as directory:
      hr=page(a);hr.get_by_label('Interview candidate',exact=True).select_option(str(new));hr.get_by_label('Interview assignee',exact=True).select_option(str(aid));hr.get_by_role('button',name='Assign interview',exact=True).click();expect(hr.get_by_role('status')).to_contain_text('saved')
      for label in ['Role knowledge (1–5)','Problem solving (1–5)','Communication (1–5)']:hr.get_by_label(label,exact=True).fill('4')
      hr.get_by_label('Interview recommendation',exact=True).select_option('Hire');hr.get_by_label('Interview evidence',exact=True).fill('Browser evidence: demonstrated relevant experience.');hr.get_by_role('button',name='Submit final scorecard',exact=True).click();expect(hr.get_by_text('Recommendation: Hire',exact=True)).to_be_visible()
-     hr.get_by_label('Hiring approver',exact=True).select_option(str(mid));hr.get_by_label('Hiring rationale',exact=True).fill('Please review the submitted interview evidence.');hr.get_by_role('button',name='Request hiring approval',exact=True).click();expect(hr.get_by_text('Hiring request',exact=False)).to_be_visible()
-     approver=page(manager);approver.get_by_label('Interview candidate',exact=True).select_option(str(new));approver.get_by_text('Frozen evidence for this request',exact=True).click();expect(approver.get_by_text('Browser evidence: demonstrated relevant experience.',exact=True)).to_be_visible();approver.get_by_label('Hiring decision',exact=True).select_option('Approved');approver.get_by_label('Decision rationale',exact=True).fill('Reviewed the evidence and recommend proceeding.');approver.get_by_role('button',name='Record hiring decision',exact=True).click();expect(approver.get_by_role('heading',name='Approved',exact=False)).to_be_visible()
+     hr.get_by_label('Hiring approver',exact=True).select_option(str(mid));hr.get_by_label('Hiring rationale',exact=True).fill('Please review the submitted interview evidence.');hr.get_by_role('button',name='Request hiring approval',exact=True).click();expect(hr.get_by_role('heading',name='Pending',exact=False)).to_be_visible()
+     browser_request=next(v for v in a.call(200)['approvals'] if v['applicant_id']==new)
+     hr.get_by_text(f"Manage unanswered request #{browser_request['id']}",exact=True).click();hr.get_by_label(f"Withdrawal reason for request {browser_request['id']}",exact=True).fill('Restart with the designated reviewer.');hr.get_by_role('button',name=f"Withdraw hiring request #{browser_request['id']}",exact=True).click();expect(hr.get_by_role('heading',name='Withdrawn',exact=False)).to_be_visible()
+     hr.get_by_role('button',name='Request hiring approval',exact=True).click();expect(hr.get_by_role('heading',name='Pending',exact=False)).to_be_visible();browser_request=next(v for v in a.call(200)['approvals'] if v['applicant_id']==new)
+     hr.get_by_text(f"Manage unanswered request #{browser_request['id']}",exact=True).click();hr.get_by_label(f"Replacement approver for request {browser_request['id']}",exact=True).select_option(str(replacement_id));hr.get_by_label(f"Reassignment reason for request {browser_request['id']}",exact=True).fill('Assign the replacement manager.');hr.get_by_role('button',name=f"Reassign hiring request #{browser_request['id']}",exact=True).click();expect(hr.get_by_role('heading',name='Reassigned',exact=False)).to_be_visible()
+     approver=page(replacement);approver.get_by_label('Interview candidate',exact=True).select_option(str(new));approver.get_by_text('Frozen evidence for this request',exact=True).click();expect(approver.get_by_text('Browser evidence: demonstrated relevant experience.',exact=True)).to_be_visible();approver.get_by_label('Hiring decision',exact=True).select_option('Approved');approver.get_by_label('Decision rationale',exact=True).fill('Reviewed the evidence and recommend proceeding.');approver.get_by_role('button',name='Record hiring decision',exact=True).click();expect(approver.get_by_role('heading',name='Approved',exact=False)).to_be_visible()
      approver.set_viewport_size({'width':390,'height':844});assert approver.evaluate('document.documentElement.scrollWidth <= innerWidth')
      a.call(200,'/api/records/applicants',{'id':new,'status':'Offer'},'PATCH')
      hr.goto(BASE+'/operations?tab=offers');hr.get_by_label('Offer candidate',exact=True).select_option(str(new));hr.get_by_label('Offer letter template',exact=True).select_option(str(letter_template));hr.get_by_label('Proposed start date',exact=True).fill('2026-11-01');hr.get_by_label('Offer terms',exact=True).fill('Browser offer terms, as discussed with HR.');hr.get_by_label('I reviewed the template and terms and authorize issuing this letter',exact=True).check();hr.get_by_role('button',name='Issue offer and private link',exact=True).click()
