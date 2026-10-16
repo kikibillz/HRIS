@@ -60,7 +60,7 @@ export default function ToolsPanel({
     [from, setFrom] = useState(""),
     [to, setTo] = useState("");
   const endpoint =
-    kind === "analytics" || kind === "start"
+    kind === "analytics"
       ? "reports"
       : kind === "audit"
         ? "reports?type=audit"
@@ -521,31 +521,8 @@ export default function ToolsPanel({
           </section>
         </>
       )}
-      {(kind === "analytics" || kind === "start") && (
+      {kind === "analytics" && (
         <>
-          {kind === "start" && (
-            <section className="panel ops-form">
-              <p className="eyebrow">FIRST PAYROLL IN 24 HOURS</p>
-              <h2>Launch {context.company.name}</h2>
-              <p>
-                1. Import staff → 2. Complete compensation or exclusions → 3.
-                Review the workbook and statutory settings → 4. Calculate and
-                approve payroll → 5. Export schedules and record your bank
-                payment.
-              </p>
-              <div className="ops-actions">
-                <a href="/operations?tab=import" className="primary">
-                  Import staff
-                </a>
-                <a href="/operations?tab=payroll" className="secondary">
-                  Prepare payroll
-                </a>
-                <a href="/" className="secondary">
-                  Employees, accounts &amp; leave
-                </a>
-              </div>
-            </section>
-          )}
           <div className="stats">
             {Object.entries((data.counts ?? {}) as Record<string, number>).map(
               ([k, v]) => (

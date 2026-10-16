@@ -35,6 +35,12 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    signup(a,'Alpha','alpha-admin@example.test');signup(b,'Beta','beta-admin@example.test')
    ca=a.expect(200,'/api/operations');assert ca['ai_configured'] is False;cb=b.expect(200,'/api/operations');aid=ca['user']['employee_id'];bid=cb['user']['employee_id'];assert ca['user']['company_id']!=cb['user']['company_id']
    assert 'olivia@peopleos.demo' not in a.expect(200)
+   guest.expect(401,'/api/launch')
+   for period in ['2026-13','2025-01','2026-1','']:
+    a.expect(400,'/api/launch?period='+period)
+   launch=a.expect(200,'/api/launch?period=2026-10');assert launch['completed']==1 and launch['next']=='compensation' and len(launch['missing_compensation'])==1
+   assert 'alpha' not in str(b.expect(200,'/api/launch?period=2026-10&company_id='+str(ca['user']['company_id']))).lower()
+
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
     dept_a=db.execute('SELECT department_id FROM company_departments WHERE company_id=?',(ca['user']['company_id'],)).fetchone()[0]
     dept_b=db.execute('SELECT department_id FROM company_departments WHERE company_id=?',(cb['user']['company_id'],)).fetchone()[0]
@@ -42,6 +48,7 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    for person in a.expect(200,'/api/operations')['employees']:
     if person['email']!='alpha-admin@example.test':a.expect(200,'/api/people',{'employee_id':person['id'],'name':person['name'],'role':person['role'],'joined':'2026-10-01','status':'Active'},'PATCH')
    login(worker,'alpha-worker@example.test');login(peer,'alpha-peer@example.test');login(manager,'alpha-manager@example.test')
+   for c in [worker,manager]:c.expect(403,'/api/launch?period=2026-10')
    people=a.expect(200,'/api/operations')['employees'];wid=next(p['id'] for p in people if p['email']=='alpha-worker@example.test');pid=next(p['id'] for p in people if p['email']=='alpha-peer@example.test');mid=next(p['id'] for p in people if p['email']=='alpha-manager@example.test')
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:manager_account=db.execute('SELECT id FROM accounts WHERE employee_id=?',(mid,)).fetchone()[0]
    for c in [guest,worker,manager]:c.expect(401 if c is guest else 403,'/api/import',{'csv':'name,email\nBad,bad@example.test','action':'commit'})
@@ -139,6 +146,14 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    assert next(i['details'] for i in worker.expect(200,'/api/payroll')['items'] if i['run_id']==novrun)==original
    exported=list(csv_module.DictReader(io.StringIO(a.expect(200,f'/api/reports?type=payroll&run_id={novrun}'))))
    assert next(r for r in exported if r['name']=='Alpha Worker Renamed')['gross_kobo']=='22500000'
+   launch=a.expect(200,'/api/launch?period=2026-11');assert next(x for x in launch['steps'] if x['id']=='release')['complete'] and not next(x for x in launch['steps'] if x['id']=='review')['complete']
+   a.expect(200,'/api/payroll',{'action':'record_review','run_id':novrun,'reviewed_by':'Test accountant','reference':'TEST-REVIEW','confirmed':True})
+   assert next(x for x in a.expect(200,'/api/launch?period=2026-11')['steps'] if x['id']=='review')['complete']
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    original_hash=db.execute('SELECT snapshot_hash FROM payroll_reviews WHERE run_id=?',(novrun,)).fetchone()[0]
+    db.execute("UPDATE payroll_reviews SET snapshot_hash='invalid' WHERE run_id=?",(novrun,))
+   assert not next(x for x in a.expect(200,'/api/launch?period=2026-11')['steps'] if x['id']=='review')['complete']
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute('UPDATE payroll_reviews SET snapshot_hash=? WHERE run_id=?',(original_hash,novrun))
    analytics=a.expect(200,'/api/reports');assert 0<=analytics['first_payroll_hours']<24 and analytics['funnel'][0]['status']=='Interview';assert b.expect(200,'/api/reports')['first_payroll_hours'] is None
    audit=a.expect(200,'/api/reports?type=audit');assert any(x['action']=='Payroll approved' for x in audit['rows'])
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})

@@ -16,6 +16,14 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
     admin=browser.new_page(viewport={'width':1440,'height':1000});errors=[];admin.on('pageerror',lambda e:errors.append(str(e)))
     admin.goto(base+'/signup');admin.get_by_label('Company name').fill('Browser Company');admin.get_by_label('Your name').fill('Browser Admin');admin.get_by_label('Work email').fill('browser-admin@example.test');admin.get_by_label('Password',exact=True).fill(password);admin.get_by_role('button',name='Create company',exact=True).click()
     expect(admin.get_by_role('heading',name='Company launch',exact=True)).to_be_visible()
+    expect(admin.get_by_role('heading',name='Your first payroll checklist',exact=True)).to_be_visible()
+    admin.get_by_label('Payroll month',exact=True).fill('2026-10')
+    expect(admin.get_by_role('status')).to_contain_text('1 of 6 steps complete')
+    admin.get_by_role('button',name='Refresh checklist',exact=True).click()
+    expect(admin.get_by_role('status')).to_contain_text('1 of 6 steps complete')
+    assert admin.get_by_role('link',name='Download calculation review workbook').get_attribute('href')=='/payroll-review.xlsx'
+    admin.set_viewport_size({'width':390,'height':844});assert admin.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    admin.set_viewport_size({'width':1440,'height':1000})
     admin.get_by_role('button',name='Staff import',exact=True).click()
     csv='name,email,role,department,joined,basic,housing,transport,annual_rent,pension,nhf\nBrowser Worker,browser-worker@example.test,Engineer,Engineering,2026-10-01,200000,100000,50000,1200000,true,true\n'
     admin.get_by_label('Staff CSV').set_input_files({'name':'staff.csv','mimeType':'text/csv','buffer':csv.encode()})

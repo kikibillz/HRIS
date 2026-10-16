@@ -4,6 +4,7 @@ import { modules } from "@/lib/modules";
 import { api, type Context } from "./types";
 import RecordsPanel from "./records-panel";
 import PayrollPanel from "./payroll-panel";
+import LaunchPanel from "./launch-panel";
 import BackupsPanel from "./backups-panel";
 import ToolsPanel from "./tools-panel";
 const extras: Record<
@@ -180,6 +181,8 @@ export default function Operations() {
             <p role="alert">Administrator access required.</p>
           ) : modules[tab] ? (
             <RecordsPanel key={tab} kind={tab} context={context} />
+          ) : tab === "start" ? (
+            <LaunchPanel />
           ) : tab === "backups" ? (
             <BackupsPanel />
           ) : tab === "payroll" ? (
