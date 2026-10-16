@@ -58,3 +58,5 @@ for(let month=1;month<=12;month++){const period=`2026-${String(month).padStart(2
 console.log(`PASS: ${cumulativeCases.length} independent cumulative cases, 12-month exact annual reconciliation, history validation, mutually exclusive methods, exemption checks, refund and negative-net blockers. Accountant method approval pending.`);
 
 assert.throws(()=>parseAdjustment({paye_method:['cumulative']}));
+
+assert.ok(csv([{name:'  =HYPERLINK("x")'}]).includes("'  =HYPERLINK"));

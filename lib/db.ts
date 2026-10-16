@@ -172,3 +172,8 @@ CREATE INDEX IF NOT EXISTS payroll_settlement_run ON payroll_settlements(run_id,
 CREATE TABLE IF NOT EXISTS payroll_settlement_voids(
  settlement_id INTEGER PRIMARY KEY REFERENCES payroll_settlements(id),reason TEXT NOT NULL,actor_id INTEGER NOT NULL REFERENCES accounts(id),
  created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));`);
+
+// Export corrections never rewrite frozen payroll; generated packs remain immutable.
+db.exec(`CREATE TABLE IF NOT EXISTS payroll_export_settings(company_id INTEGER PRIMARY KEY REFERENCES companies(id),data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS payroll_export_profiles(company_id INTEGER NOT NULL REFERENCES companies(id),run_id INTEGER NOT NULL REFERENCES payroll_runs(id),employee_id INTEGER NOT NULL REFERENCES employees(id),data TEXT NOT NULL,reference TEXT NOT NULL,updated_by INTEGER NOT NULL REFERENCES accounts(id),PRIMARY KEY(company_id,run_id,employee_id));
+CREATE TABLE IF NOT EXISTS payroll_export_artifacts(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),run_id INTEGER NOT NULL REFERENCES payroll_runs(id),kind TEXT NOT NULL,payload TEXT NOT NULL,sha256 TEXT NOT NULL,created_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));`);

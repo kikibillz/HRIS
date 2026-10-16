@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import PayrollExports from "./payroll-exports";
 import PayrollSettlements from "./payroll-settlements";
 import PayrollLedgerPanel from "./payroll-ledger-panel";
 import PayrollReviewForm, { type PayrollReview } from "./payroll-review";
@@ -448,6 +449,7 @@ export default function PayrollPanel({ context }: { context: Context }) {
                   action={action}
                 />
               )}
+              {run.status !== "Draft" && <PayrollExports runId={run.id} />}
               {run.status !== "Draft" && (
                 <PayrollSettlements runId={run.id} onChange={load} />
               )}

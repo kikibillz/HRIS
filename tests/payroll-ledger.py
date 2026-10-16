@@ -1,5 +1,5 @@
 """Disposable-database integration tests for opening balances, YTD and review evidence."""
-import csv, hashlib, http.cookiejar, io, json, os, secrets, sqlite3, subprocess, tempfile, time, urllib.error, urllib.request
+import csv, hashlib, zipfile, http.cookiejar, io, json, os, secrets, sqlite3, subprocess, tempfile, time, urllib.error, urllib.request
 BASE='http://127.0.0.1:3107';password=secrets.token_urlsafe(24);checks=0
 class Client:
  def __init__(self):self.http=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -9,7 +9,7 @@ class Client:
   try:r=self.http.open(req,timeout=15)
   except urllib.error.HTTPError as e:r=e
   with r:
-   raw=r.read();data=json.loads(raw) if r.headers.get('Content-Type','').startswith('application/json') else raw.decode(errors='replace')
+   raw=r.read();data=json.loads(raw) if r.headers.get('Content-Type','').startswith('application/json') else raw if r.headers.get('Content-Type','').startswith('application/zip') else raw.decode(errors='replace')
   assert r.status==status,(path,status,r.status,str(data)[:500]);checks+=1;return data
  def payroll(self,status,**body):return self.expect(status,'/api/payroll',body)
  def opening(self,status,**body):return self.expect(status,'/api/payroll-ledger',body)
@@ -90,6 +90,39 @@ with tempfile.TemporaryDirectory(prefix='hris-ytd-') as directory:
    export=list(csv.DictReader(io.StringIO(admin.expect(200,'/api/payroll-ledger?period=2026-11&format=csv'))));assert next(r for r in export if r['employee_id']==str(wid))['gross_kobo']=='220000000'
    assert 'worker@ytd.test' not in other.expect(200,'/api/payroll-ledger?format=csv')
    admin.payroll(400,action='draft',period='2026-08')
+   # Export packs block missing identifiers, preserve leading zeros, and freeze sources.
+   for c in [guest,worker,manager]:
+    c.expect(401 if c is guest else 403,f'/api/payroll-exports?run_id={nov}')
+    c.expect(401 if c is guest else 403,'/api/payroll-exports',{'action':'create','run_id':nov,'kind':'bank','confirmed':True})
+   other.expect(400,f'/api/payroll-exports?run_id={nov}')
+   readiness=admin.expect(200,f'/api/payroll-exports?run_id={nov}');assert readiness['errors']
+   admin.expect(400,'/api/payroll-exports',{'action':'create','run_id':nov,'kind':'bank','confirmed':True})
+   profile={'action':'profile','run_id':nov,'employee_id':wid,'bank':'Fixture Bank','bank_account':'0123456789','bank_code':'011','tax_id':'TAX-FIXTURE','pension_id':'PIN-FIXTURE','nhf_id':'','tax_authority':'Lagos','reference':'Reviewed fixture identifiers','confirmed':True}
+   admin.expect(403,'/api/payroll-exports',profile,origin='https://untrusted.example')
+   admin.expect(400,'/api/payroll-exports',{**profile,'employee_id':oid});other.expect(400,'/api/payroll-exports',profile)
+   admin.expect(400,'/api/payroll-exports',{**profile,'bank_account':'123'});admin.expect(400,'/api/payroll-exports',{**profile,'confirmed':False})
+   admin.expect(200,'/api/payroll-exports',profile)
+   settings=readiness['settings'];settings['columns']=[{'header':'Payee','field':'beneficiary'},{'header':'Account','field':'account_number'},{'header':'Amount','field':'amount'},{'header':'Code','field':'bank_code'}]
+   settings['employer'].update(tax_id='EMPLOYER-TAX',pension_reference='EMPLOYER-PENSION',ecs_reference='EMPLOYER-ECS')
+   admin.expect(400,'/api/payroll-exports',{'action':'settings',**{**settings,'columns':[{'header':'oops','field':'amount'}]}})
+   badcols=[{**c,'header':' =HYPERLINK("x")'} if i==0 else c for i,c in enumerate(settings['columns'])]
+   admin.expect(400,'/api/payroll-exports',{'action':'settings',**{**settings,'columns':badcols}})
+   admin.expect(200,'/api/payroll-exports',{'action':'settings',**settings})
+   bank_artifact=admin.expect(200,'/api/payroll-exports',{'action':'create','run_id':nov,'kind':'bank','confirmed':True})['id']
+   bank_bytes=admin.expect(200,f'/api/payroll-exports?artifact_id={bank_artifact}')
+   with zipfile.ZipFile(io.BytesIO(bank_bytes)) as archive:
+    assert archive.testzip() is None
+    bank_csv=archive.read('bank-schedule.csv').decode();rows=list(csv.DictReader(io.StringIO(bank_csv)))
+    assert list(rows[0])==['Payee','Account','Amount','Code'] and rows[0]['Account']=='0123456789' and rows[0]['Code']=='011' and rows[0]['Amount']=='166400.00'
+    manifest=json.loads(archive.read('manifest.json'));assert hashlib.sha256(archive.read('bank-schedule.csv')).hexdigest()==manifest['file_sha256']['bank-schedule.csv']
+   other.expect(404,f'/api/payroll-exports?artifact_id={bank_artifact}');worker.expect(403,f'/api/payroll-exports?artifact_id={bank_artifact}')
+   admin.expect(200,'/api/payroll-exports',{**profile,'bank_account':'9999999999','reference':'Second reviewed fixture'})
+   assert admin.expect(200,f'/api/payroll-exports?artifact_id={bank_artifact}')==bank_bytes
+   statutory_artifact=admin.expect(200,'/api/payroll-exports',{'action':'create','run_id':nov,'kind':'statutory','confirmed':True})['id']
+   with zipfile.ZipFile(io.BytesIO(admin.expect(200,f'/api/payroll-exports?artifact_id={statutory_artifact}'))) as archive:
+    assert archive.testzip() is None and 'contributions.csv' in archive.namelist()
+    assert list(csv.DictReader(io.StringIO(archive.read('paye.csv').decode())))[0]['paye_ngn']=='17600.00'
+    assert 'not certified' in archive.read('README.txt').decode()
    # External salary and statutory receipts use frozen payroll obligations.
    receipt={'action':'record','run_id':nov,'obligation':'salary','employee_id':wid,'amount':'100000','reference':'SALARY-ALLOCATION-1','paid_on':'2026-10-16','note':'Fixture bank evidence','confirmed':True}
    for c in [guest,worker,manager]:
@@ -125,6 +158,9 @@ with tempfile.TemporaryDirectory(prefix='hris-ytd-') as directory:
    admin.expect(400,'/api/payroll-settlements',{**receipt,'run_id':run,'reference':'LEGACY-DOUBLE'})
    admin.expect(400,'/api/payroll-settlements',{**statutory,'run_id':run,'reference':'BANK-FIXTURE'})
    assert any(r['voided_at'] for r in admin.expect(200,f'/api/payroll-settlements?run_id={nov}')['records'])
+   assert admin.expect(200,f'/api/payroll-exports?artifact_id={bank_artifact}')==bank_bytes
+   assert 'No outstanding salary' in ' '.join(admin.expect(200,f'/api/payroll-exports?run_id={nov}')['errors'])
+   admin.expect(400,'/api/payroll-exports',{'action':'create','run_id':nov,'kind':'bank','confirmed':True})
    # Opt-in cumulative PAYE uses server-owned opening/released totals, not client priors.
    cumulative={'action':'preview_cumulative','employee_id':wid,'period':'2026-12','paye_method':'cumulative','history_confirmed':True,'review_note':'TEST cumulative calendar-month method evidence'}
    for c in [guest,worker,manager]:c.payroll(401 if c is guest else 403,**cumulative)

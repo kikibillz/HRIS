@@ -3,7 +3,7 @@ export function csv(rows: Record<string, unknown>[]) {
   const keys = Object.keys(rows[0]);
   const cell = (value: unknown) => {
     let s = String(value ?? "");
-    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    if (/^[=+\-@\t\r\n]|^[\s\u0000-\u001f]*[=+\-@]/.test(s)) s = "'" + s;
     return '"' + s.replaceAll('"', '""') + '"';
   };
   return [
