@@ -82,6 +82,68 @@ with tempfile.TemporaryDirectory(prefix='hris-recruiting-') as directory:
     before=db.execute('SELECT count(*) FROM employees').fetchone()[0]
     assert db.execute("SELECT count(*) FROM audit_log WHERE company_id=? AND action='Hiring approved'",(company,)).fetchone()[0]==2
    assert len(a.call(200,'/api/operations')['employees'])==4 # hiring never creates an employee automatically
+   # Reviewed candidate handoff never creates accounts or overwrites existing employees.
+   guest.call(401,'/api/recruiting-handoff')
+   for client in [reviewer,manager,peer]:
+    client.call(403,'/api/recruiting-handoff');client.call(403,'/api/recruiting-handoff',{'action':'preview','applicant_id':cid})
+   template=a.call(201,'/api/onboarding',{'action':'create','title':'Handoff checklist','items':[{'title':'Prepare paperwork','body':'Welcome documents','days':-1},{'title':'Meet the team','body':'Introductions','days':2}]})['id']
+   form={'applicant_id':cid,'mode':'create','work_email':'new-hire@example.test','role':'Engineer','department_id':dept,'start_date':'2026-03-01','template_id':template}
+   def preview(form):return a.call(200,'/api/recruiting-handoff',{'action':'preview',**form})['preview']
+   a.call(403,'/api/recruiting-handoff',{'action':'preview',**form},origin='https://untrusted.example')
+   b.call(400,'/api/recruiting-handoff',{'action':'preview',**form})
+   a.call(400,'/api/recruiting-handoff',{'action':'preview',**form,'applicant_id':hidden})
+   a.call(400,'/api/recruiting-handoff',{'action':'preview',**form,'work_email':'INTERVIEWER@example.test'})
+   a.call(400,'/api/recruiting-handoff',{'action':'preview',**form,'department_id':999999})
+   a.call(400,'/api/recruiting-handoff',{'action':'preview',**form,'template_id':job})
+   reviewed=preview(form);assert {t['due'] for t in reviewed['tasks']}=={'2026-02-28','2026-03-03'}
+   a.call(200,'/api/records/applicants',{'id':cid,'body':'A correction after preview'},'PATCH')
+   a.call(400,'/api/recruiting-handoff',{'action':'commit',**form,'confirmed':True,'preview_hash':reviewed['hash']})
+   reviewed=preview(form);commit={'action':'commit',**form,'confirmed':True,'preview_hash':reviewed['hash']}
+   a.call(400,'/api/recruiting-handoff',{**commit,'confirmed':False})
+   a.call(400,'/api/recruiting-handoff',{**commit,'preview_hash':'0'*64})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    profiles=db.execute('SELECT * FROM employees ORDER BY id').fetchall();credentials=db.execute('SELECT * FROM accounts ORDER BY id').fetchall()
+    db.execute("CREATE TRIGGER abort_handoff_task BEFORE INSERT ON hr_records WHEN NEW.kind='tasks' BEGIN SELECT RAISE(ABORT,'test assignment failure'); END;")
+   a.call(400,'/api/recruiting-handoff',commit)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM employees ORDER BY id').fetchall()==profiles
+    assert not db.execute('SELECT * FROM recruiting_handoffs').fetchall()
+    db.execute('DROP TRIGGER abort_handoff_task')
+   # Concurrent retries must return one mapping and one set of tasks.
+   def commit_handoff(_):
+    req=urllib.request.Request(BASE+'/api/recruiting-handoff',data=json.dumps(commit).encode(),headers={'Origin':BASE,'Content-Type':'application/json'})
+    with a.http.open(req,timeout=15) as r:return r.status,json.loads(r.read())
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(commit_handoff,range(2)))
+   assert sorted(status for status,result in results)==[200,201]
+   assert len({result['employee_id'] for status,result in results})==1
+   created=results[0][1];new_employee=created['employee_id']
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM accounts ORDER BY id').fetchall()==credentials
+    assert db.execute('SELECT count(*) FROM employees').fetchone()[0]==len(profiles)+1
+    assert db.execute("SELECT count(*) FROM hr_records WHERE kind='tasks' AND reference_id=?",(created['onboarding_assignment_id'],)).fetchone()[0]==2
+   assert not b.call(200,'/api/recruiting-handoff')['handoffs']
+   assert a.call(200,'/api/recruiting-handoff',commit)['already_completed']
+   # Link another approved hire to an existing employee, keeping credentials and completed tasks.
+   a.call(200,body={'action':'assign','applicant_id':hidden,'interviewer_id':aid})
+   own_card=next(c for c in a.call(200)['cards'] if c['applicant_id']==hidden)
+   a.call(200,body={**score,'card_id':own_card['id']})
+   a.call(200,body={**request,'applicant_id':hidden})
+   hidden_approval=manager.call(200)['approvals'][0]['id'];manager.call(200,body={**decision,'approval_id':hidden_approval})
+   a.call(200,'/api/records/applicants',{'id':hidden,'status':'Hired'},'PATCH')
+   existing_id=reviewer.call(200,'/api/operations')['user']['employee_id'];foreign_id=b.call(200,'/api/operations')['user']['employee_id']
+   linked={'applicant_id':hidden,'mode':'link','employee_id':existing_id,'start_date':'2026-03-01','template_id':template}
+   a.call(400,'/api/recruiting-handoff',{'action':'preview',**linked,'employee_id':foreign_id})
+   assigned=a.call(200,'/api/onboarding',{'action':'assign','template_id':template,'employee_ids':[existing_id],'start_date':'2026-03-01'})['assignment_ids'][0]
+   task=reviewer.call(200,'/api/records/tasks')['rows'][0];reviewer.call(200,'/api/records/tasks',{'id':task['id'],'status':'Done'},'PATCH')
+   reviewed=preview(linked);assert reviewed['existing_assignment_id']==assigned and any(t['status']=='Done' for t in reviewed['tasks'])
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:linked_profiles=db.execute('SELECT * FROM employees ORDER BY id').fetchall();task_count=db.execute("SELECT count(*) FROM hr_records WHERE kind='tasks'").fetchone()[0]
+   result=a.call(201,'/api/recruiting-handoff',{'action':'commit',**linked,'confirmed':True,'preview_hash':reviewed['hash'],'access':'admin','role':'Changed role'})
+   assert result['employee_id']==existing_id and result['onboarding_assignment_id']==assigned
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM accounts ORDER BY id').fetchall()==credentials
+    assert db.execute('SELECT * FROM employees ORDER BY id').fetchall()==linked_profiles
+    assert db.execute("SELECT count(*) FROM hr_records WHERE kind='tasks'").fetchone()[0]==task_count
+    assert not db.execute('PRAGMA foreign_key_check').fetchall()
    if browser_mode:
     from playwright.sync_api import sync_playwright,expect
     new=applicant('Browser candidate')
@@ -95,6 +157,12 @@ with tempfile.TemporaryDirectory(prefix='hris-recruiting-') as directory:
      hr.get_by_label('Hiring approver',exact=True).select_option(str(mid));hr.get_by_label('Hiring rationale',exact=True).fill('Please review the submitted interview evidence.');hr.get_by_role('button',name='Request hiring approval',exact=True).click();expect(hr.get_by_text('Hiring request',exact=False)).to_be_visible()
      approver=page(manager);approver.get_by_label('Interview candidate',exact=True).select_option(str(new));approver.get_by_text('Frozen evidence for this request',exact=True).click();expect(approver.get_by_text('Browser evidence: demonstrated relevant experience.',exact=True)).to_be_visible();approver.get_by_label('Hiring decision',exact=True).select_option('Approved');approver.get_by_label('Decision rationale',exact=True).fill('Reviewed the evidence and recommend proceeding.');approver.get_by_role('button',name='Record hiring decision',exact=True).click();expect(approver.get_by_role('heading',name='Approved',exact=False)).to_be_visible()
      approver.set_viewport_size({'width':390,'height':844});assert approver.evaluate('document.documentElement.scrollWidth <= innerWidth')
+     a.call(200,'/api/records/applicants',{'id':new,'status':'Hired'},'PATCH')
+     hr.goto(BASE+'/operations?tab=recruiting-handoff');expect(hr.get_by_role('heading',name='Review a hired candidate’s handoff',exact=True)).to_be_visible()
+     hr.get_by_label('Handoff candidate',exact=True).select_option(str(new));hr.get_by_label('Work email',exact=True).fill('browser-handoff@example.test');hr.get_by_label('Employee department',exact=True).select_option(str(dept));hr.get_by_label('Handoff start date',exact=True).fill('2026-11-01');hr.get_by_label('Handoff onboarding template',exact=True).select_option(str(template))
+     hr.get_by_role('button',name='Preview employee handoff',exact=True).click();expect(hr.get_by_role('heading',name='Confirm reviewed handoff',exact=True)).to_be_visible();expect(hr.get_by_text('Meet the team · Due 2026-11-03',exact=False)).to_be_visible()
+     hr.get_by_label('I reviewed the employee details and onboarding dates',exact=True).check();hr.get_by_role('button',name='Complete employee handoff',exact=True).click();expect(hr.get_by_role('status')).to_contain_text('Employee handoff completed')
+     hr.set_viewport_size({'width':390,'height':844});assert hr.evaluate('document.documentElement.scrollWidth <= innerWidth')
      outsider=page(peer);expect(outsider.get_by_text('No candidates available to your account.',exact=True)).to_be_visible()
      assert not errors,errors;browser.close();print('PASS: recruiting browser assignment, scorecard, delegated approval, private evidence and mobile layout.')
    print(f'PASS: {checks} recruiting HTTP checks; company/interviewer isolation, immutable scores, approval ownership, snapshot invalidation, pipeline bypass prevention and preserved accounts.')

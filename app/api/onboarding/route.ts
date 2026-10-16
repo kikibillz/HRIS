@@ -1,7 +1,7 @@
 import { currentUser, requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { validDate } from "@/lib/leave-policy";
-import { audit, notify } from "@/lib/tenant";
+import { assignOnboarding } from "@/lib/onboarding-assignment";
+import { audit } from "@/lib/tenant";
 type Item = { title: string; body: string; days: number };
 type Template = { id: number; title: string; data: string; status: string };
 const kind = "onboarding_template",
@@ -112,112 +112,14 @@ export async function POST(request: Request) {
         db.exec("COMMIT");
         return Response.json({ ok: true });
       }
-      if (
-        !validDate(b.start_date) ||
-        b.start_date < "1900-01-01" ||
-        !Array.isArray(b.employee_ids) ||
-        !b.employee_ids.length ||
-        b.employee_ids.length > 50 ||
-        b.employee_ids.some(
-          (id: unknown) => !Number.isSafeInteger(id) || Number(id) < 1,
-        )
-      )
-        throw Error("Choose 1–50 employees and a valid start date.");
-      const employees = [...new Set<number>(b.employee_ids)];
-      for (const id of employees)
-        if (
-          !db
-            .prepare(
-              "SELECT 1 FROM employees e JOIN company_employees ce ON ce.employee_id=e.id WHERE e.id=? AND ce.company_id=? AND e.status='Active'",
-            )
-            .get(id, user.company_id)
-        )
-          throw Error(
-            "An employee is unavailable in this company. No assignments were made.",
-          );
-      const items: Item[] = JSON.parse(template.data).items;
-      const dueDates = items.map((item) => {
-        const date = new Date(b.start_date + "T00:00:00Z");
-        date.setUTCDate(date.getUTCDate() + item.days);
-        const value = date.toISOString().slice(0, 10);
-        if (!validDate(value))
-          throw Error("A task due date falls outside the supported range.");
-        return value;
-      });
-      let created = 0,
-        skipped = 0;
-      for (const employee of employees) {
-        if (
-          db
-            .prepare(
-              "SELECT id FROM hr_records WHERE company_id=? AND kind=? AND reference_id=? AND employee_id=? AND due=?",
-            )
-            .get(
-              user.company_id,
-              assignmentKind,
-              template.id,
-              employee,
-              b.start_date,
-            )
-        ) {
-          skipped++;
-          continue;
-        }
-        const assignment = Number(
-          db
-            .prepare(
-              "INSERT INTO hr_records(company_id,kind,title,employee_id,reference_id,due,created_by) VALUES (?,?,?,?,?,?,?)",
-            )
-            .run(
-              user.company_id,
-              assignmentKind,
-              template.title,
-              employee,
-              template.id,
-              b.start_date,
-              user.id,
-            ).lastInsertRowid,
-        );
-        for (const [index, item] of items.entries()) {
-          const task = Number(
-            db
-              .prepare(
-                "INSERT INTO hr_records(company_id,kind,title,body,employee_id,reference_id,due,data,created_by) VALUES (?,'tasks',?,?,?,?,?,?,?)",
-              )
-              .run(
-                user.company_id,
-                item.title,
-                item.body,
-                employee,
-                assignment,
-                dueDates[index],
-                JSON.stringify({
-                  title: item.title,
-                  body: item.body,
-                  due: dueDates[index],
-                  employee_id: employee,
-                }),
-                user.id,
-              ).lastInsertRowid,
-          );
-          db.prepare(
-            "INSERT INTO hr_record_events(record_id,status,actor_id) VALUES (?,'Open',?)",
-          ).run(task, user.id);
-        }
-        notify(
-          employee,
-          "Onboarding checklist assigned",
-          `${template.title}: ${items.length} tasks. View Onboarding checklists for due dates.`,
-        );
-        audit(user, "Onboarding checklist assigned", String(assignment));
-        created++;
-      }
+      const result = assignOnboarding(
+        user,
+        b.template_id,
+        b.employee_ids,
+        b.start_date,
+      );
       db.exec("COMMIT");
-      return Response.json({
-        created,
-        skipped,
-        tasks_created: created * items.length,
-      });
+      return Response.json(result);
     } catch (e) {
       db.exec("ROLLBACK");
       throw e;
