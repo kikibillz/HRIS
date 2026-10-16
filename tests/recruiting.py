@@ -1,0 +1,103 @@
+"""Recruiting permissions, immutable evidence, approval integrity and optional browser flow."""
+import concurrent.futures,http.cookiejar,json,os,secrets,sqlite3,subprocess,sys,tempfile,time,urllib.request,urllib.error
+browser_mode='--browser' in sys.argv
+port=3111 if browser_mode else 3110
+BASE=f'http://127.0.0.1:{port}';checks=0;password=secrets.token_urlsafe(24)
+class Client:
+ def __init__(self):
+  self.jar=http.cookiejar.CookieJar();self.http=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
+ def call(self,status,path='/api/recruiting',body=None,method=None,origin=BASE):
+  global checks
+  req=urllib.request.Request(BASE+path,data=json.dumps(body).encode() if body is not None else None,method=method,headers={'Origin':origin,'Content-Type':'application/json'})
+  try:r=self.http.open(req,timeout=15)
+  except urllib.error.HTTPError as e:r=e
+  with r:
+   text=r.read();result=json.loads(text) if r.headers.get('Content-Type','').startswith('application/json') else text
+   assert r.status==status,(path,r.status,result);checks+=1;return result
+with tempfile.TemporaryDirectory(prefix='hris-recruiting-') as directory:
+ with open(os.path.join(directory,'server.log'),'w+') as log:
+  server=subprocess.Popen(['node','node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port',str(port)],env={**os.environ,'HRIS_DATA_DIR':directory},stdout=log,stderr=log)
+  try:
+   a,b,reviewer,manager,peer,guest=[Client() for _ in range(6)]
+   for _ in range(100):
+    try:
+     guest.call(200,'/login');break
+    except OSError:time.sleep(.2)
+   for client,name in [(a,'Alpha'),(b,'Beta')]:client.call(201,'/api/companies',{'company':name,'name':name+' Admin','email':name.lower()+'@example.test','password':password})
+   company=a.call(200,'/api/operations')['user']['company_id']
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:dept=db.execute('SELECT department_id FROM company_departments WHERE company_id=?',(company,)).fetchone()[0]
+   for client,name,access in [(reviewer,'Interviewer','employee'),(manager,'Approver','manager'),(peer,'Peer','employee')]:
+    a.call(201,'/api/employees',{'name':name,'email':name.lower()+'@example.test','role':name,'department_id':dept,'access':access,'password':password});client.call(200,'/api/auth',{'email':name.lower()+'@example.test','password':password})
+   aid=a.call(200,'/api/operations')['user']['id'];rid=reviewer.call(200,'/api/operations')['user']['id'];mid=manager.call(200,'/api/operations')['user']['id'];bid=b.call(200,'/api/operations')['user']['id']
+   job=a.call(201,'/api/records/jobs',{'title':'Engineer','body':'Role evidence','status':'Open'})['id']
+   def applicant(name):return a.call(201,'/api/records/applicants',{'title':name,'email':'candidate@example.test','reference_id':job})['id']
+   cid=applicant('Candidate One');hidden=applicant('Unassigned candidate')
+   guest.call(401);guest.call(401,body={'action':'assign','applicant_id':cid,'interviewer_id':rid})
+   for c in [reviewer,manager,peer]:
+    assert not c.call(200)['candidates'];c.call(403,body={'action':'assign','applicant_id':cid,'interviewer_id':rid})
+   a.call(403,body={'action':'assign','applicant_id':cid,'interviewer_id':rid},origin='https://untrusted.example')
+   b.call(400,body={'action':'assign','applicant_id':cid,'interviewer_id':bid})
+   a.call(400,body={'action':'assign','applicant_id':cid,'interviewer_id':bid})
+   a.call(400,'/api/records/applicants',{'id':cid,'status':'Offer'},'PATCH')
+   a.call(400,'/api/records/applicants',{'title':'Bypass','email':'bypass@example.test','reference_id':job,'status':'Hired'})
+   a.call(200,body={'action':'assign','applicant_id':cid,'interviewer_id':rid})
+   card=reviewer.call(200)['cards'][0]['id'];assert [x['id'] for x in reviewer.call(200)['candidates']]==[cid] and not reviewer.call(200)['approvals'] and not reviewer.call(200)['interviewers']
+   a.call(400,body={'action':'assign','applicant_id':cid,'interviewer_id':rid})
+   request={'action':'request','applicant_id':cid,'approver_id':mid,'note':'Compare all evidence before progressing.'}
+   a.call(400,body=request)
+   score={'action':'submit','card_id':card,'ratings':{'knowledge':4,'problem_solving':3,'communication':5},'notes':'Concrete examples from the technical discussion.','recommendation':'Hire'}
+   for c in [a,peer,b,manager]:c.call(400,body=score)
+   reviewer.call(400,body={**score,'ratings':{'knowledge':6,'problem_solving':3,'communication':5}})
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+    # Separate authenticated openers, same identity, make a replay race explicit.
+    duplicate=Client();duplicate.call(200,'/api/auth',{'email':'interviewer@example.test','password':password})
+    def submit(c):
+     req=urllib.request.Request(BASE+'/api/recruiting',data=json.dumps(score).encode(),headers={'Origin':BASE,'Content-Type':'application/json'})
+     try:r=c.http.open(req,timeout=15)
+     except urllib.error.HTTPError as e:r=e
+     with r:return r.status
+    assert sorted(pool.map(submit,[reviewer,duplicate]))==[200,400]
+   reviewer.call(400,body=score)
+   a.call(400,body={**request,'approver_id':aid});a.call(400,body={**request,'approver_id':rid});a.call(400,body={**request,'approver_id':bid})
+   a.call(200,body=request);a.call(400,body=request)
+   approval=manager.call(200)['approvals'][0]['id'];assert [x['id'] for x in manager.call(200)['candidates']]==[cid] and not peer.call(200)['approvals'] and not b.call(200)['approvals']
+   decision={'action':'decide','approval_id':approval,'decision':'Approved','note':'Evidence reviewed; proceed.'}
+   a.call(400,body=decision);peer.call(403,body=decision);b.call(400,body=decision)
+   # Changing candidate evidence prevents approving a stale request.
+   a.call(200,'/api/records/applicants',{'id':cid,'body':'Updated evidence'},'PATCH');manager.call(400,body=decision)
+   manager.call(200,body={**decision,'decision':'Rejected','note':'Request a review of the updated evidence.'});manager.call(400,body=decision)
+   a.call(200,body=request);approval=manager.call(200)['approvals'][0]['id'];decision['approval_id']=approval;manager.call(200,body=decision)
+   # A combined evidence change + stage advance cannot bypass the reviewed snapshot.
+   a.call(400,'/api/records/applicants',{'id':cid,'title':'Changed candidate','status':'Offer'},'PATCH')
+   a.call(200,'/api/records/applicants',{'id':cid,'status':'Offer'},'PATCH')
+   # Job edits invalidate approval for the subsequent Hired transition.
+   a.call(200,'/api/records/jobs',{'id':job,'body':'Changed job requirements'},'PATCH')
+   a.call(400,'/api/records/applicants',{'id':cid,'status':'Hired'},'PATCH')
+   a.call(200,body=request);approval=manager.call(200)['approvals'][0]['id'];manager.call(200,body={**decision,'approval_id':approval})
+   a.call(200,'/api/records/applicants',{'id':cid,'status':'Hired'},'PATCH')
+   a.call(400,body={'action':'assign','applicant_id':cid,'interviewer_id':aid})
+   a.call(200,'/api/records/applicants',{'id':cid,'body':'Post-hire record correction'},'PATCH')
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert not db.execute('PRAGMA foreign_key_check').fetchall()
+    before=db.execute('SELECT count(*) FROM employees').fetchone()[0]
+    assert db.execute("SELECT count(*) FROM audit_log WHERE company_id=? AND action='Hiring approved'",(company,)).fetchone()[0]==2
+   assert len(a.call(200,'/api/operations')['employees'])==4 # hiring never creates an employee automatically
+   if browser_mode:
+    from playwright.sync_api import sync_playwright,expect
+    new=applicant('Browser candidate')
+    with sync_playwright() as p:
+     browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH','/usr/bin/chromium'),args=['--no-sandbox']);errors=[]
+     def page(client):
+      context=browser.new_context(viewport={'width':1440,'height':1000});context.add_cookies([{'name':c.name,'value':c.value,'url':BASE} for c in client.jar]);pg=context.new_page();pg.on('pageerror',lambda e:errors.append(str(e)));pg.goto(BASE+'/operations?tab=interviews');expect(pg.get_by_role('heading',name='Interview evidence and hiring decisions',exact=True)).to_be_visible();return pg
+     hr=page(a);hr.get_by_label('Interview candidate',exact=True).select_option(str(new));hr.get_by_label('Interview assignee',exact=True).select_option(str(aid));hr.get_by_role('button',name='Assign interview',exact=True).click();expect(hr.get_by_role('status')).to_contain_text('saved')
+     for label in ['Role knowledge (1–5)','Problem solving (1–5)','Communication (1–5)']:hr.get_by_label(label,exact=True).fill('4')
+     hr.get_by_label('Interview recommendation',exact=True).select_option('Hire');hr.get_by_label('Interview evidence',exact=True).fill('Browser evidence: demonstrated relevant experience.');hr.get_by_role('button',name='Submit final scorecard',exact=True).click();expect(hr.get_by_text('Recommendation: Hire',exact=True)).to_be_visible()
+     hr.get_by_label('Hiring approver',exact=True).select_option(str(mid));hr.get_by_label('Hiring rationale',exact=True).fill('Please review the submitted interview evidence.');hr.get_by_role('button',name='Request hiring approval',exact=True).click();expect(hr.get_by_text('Hiring request',exact=False)).to_be_visible()
+     approver=page(manager);approver.get_by_label('Interview candidate',exact=True).select_option(str(new));approver.get_by_text('Frozen evidence for this request',exact=True).click();expect(approver.get_by_text('Browser evidence: demonstrated relevant experience.',exact=True)).to_be_visible();approver.get_by_label('Hiring decision',exact=True).select_option('Approved');approver.get_by_label('Decision rationale',exact=True).fill('Reviewed the evidence and recommend proceeding.');approver.get_by_role('button',name='Record hiring decision',exact=True).click();expect(approver.get_by_role('heading',name='Approved',exact=False)).to_be_visible()
+     approver.set_viewport_size({'width':390,'height':844});assert approver.evaluate('document.documentElement.scrollWidth <= innerWidth')
+     outsider=page(peer);expect(outsider.get_by_text('No candidates available to your account.',exact=True)).to_be_visible()
+     assert not errors,errors;browser.close();print('PASS: recruiting browser assignment, scorecard, delegated approval, private evidence and mobile layout.')
+   print(f'PASS: {checks} recruiting HTTP checks; company/interviewer isolation, immutable scores, approval ownership, snapshot invalidation, pipeline bypass prevention and preserved accounts.')
+  except Exception:
+   log.seek(0);print(log.read()[-5000:]);raise
+  finally:server.terminate();server.wait(timeout=10)

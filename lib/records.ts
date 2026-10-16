@@ -1,3 +1,4 @@
+import { assertHiringApproval } from "./recruiting";
 import { db } from "./db";
 import type { User } from "./auth";
 import { canManageEmployee, employeeInCompany, audit, notify } from "./tenant";
@@ -221,6 +222,40 @@ export function writeRecord(
   }
   db.exec("BEGIN IMMEDIATE");
   try {
+    if (
+      kind === "applicants" &&
+      ["Offer", "Hired"].includes(status) &&
+      old?.status !== status
+    ) {
+      if (!old)
+        throw Error(
+          "Create the candidate in an earlier stage, then request hiring approval.",
+        );
+      // Validate the exact candidate/job evidence being written, not just the old row.
+      if (
+        String(data.title) !== old.title ||
+        body !== old.body ||
+        String(data.due ?? old.due) !== old.due ||
+        String(data.email ?? "") !== String(JSON.parse(old.data).email ?? "")
+      )
+        throw Error(
+          "Save candidate changes before requesting hiring approval.",
+        );
+      const latest = db
+        .prepare(
+          "SELECT title,body,data,due,status FROM hr_records WHERE id=? AND company_id=?",
+        )
+        .get(old.id, user.company_id) as HRRecord;
+      if (
+        ["title", "body", "data", "due", "status"].some(
+          (key) => latest[key as keyof HRRecord] !== old[key as keyof HRRecord],
+        )
+      )
+        throw Error(
+          "The candidate changed. Refresh and review the latest record.",
+        );
+      assertHiringApproval(user.company_id, old.id);
+    }
     let recordId = id;
     if (old) {
       db.prepare(

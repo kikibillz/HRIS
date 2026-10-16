@@ -4,6 +4,7 @@ import { modules } from "@/lib/modules";
 import { api, type Context } from "./types";
 import RecordsPanel from "./records-panel";
 import PayrollPanel from "./payroll-panel";
+import RecruitingPanel from "./recruiting-panel";
 import ReminderAutomationPanel from "./reminder-automation-panel";
 import OnboardingProgressPanel from "./onboarding-progress-panel";
 import OnboardingPanel from "./onboarding-panel";
@@ -14,6 +15,10 @@ const extras: Record<
   string,
   { title: string; description: string; admin?: boolean; manager?: boolean }
 > = {
+  interviews: {
+    title: "Interview scorecards",
+    description: "Capture interview evidence and review hiring approvals.",
+  },
   "reminder-automation": {
     title: "Reminder automation",
     description: "Schedule daily in-app reminders and monitor delivery.",
@@ -133,6 +138,7 @@ export default function Operations() {
     "letters",
     "jobs",
     "applicants",
+    "interviews",
     "goals",
     "reviews",
     "feedback",
@@ -216,6 +222,8 @@ export default function Operations() {
             </p>
           ) : modules[tab] ? (
             <RecordsPanel key={tab} kind={tab} context={context} />
+          ) : tab === "interviews" ? (
+            <RecruitingPanel context={context} />
           ) : tab === "reminder-automation" ? (
             <ReminderAutomationPanel />
           ) : tab === "onboarding-progress" ? (

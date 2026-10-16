@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
     "typecheck": "tsc --noEmit",
-    "test": "python3 tests/migration.py && python3 tests/smoke.py && python3 tests/accounts.py && node --experimental-strip-types tests/payroll.mjs && node --experimental-strip-types tests/onboarding.mjs && node --experimental-strip-types tests/onboarding-worker.mjs && python3 tests/hr_suite.py && python3 tests/payroll-ledger.py && python3 tests/backups.py",
+    "test": "python3 tests/migration.py && python3 tests/smoke.py && python3 tests/accounts.py && node --experimental-strip-types tests/payroll.mjs && node --experimental-strip-types tests/onboarding.mjs && node --experimental-strip-types tests/onboarding-worker.mjs && python3 tests/hr_suite.py && python3 tests/payroll-ledger.py && python3 tests/backups.py && python3 tests/recruiting.py",
     "backup:create": "node scripts/backup.mjs create",
     "backup:preview": "node scripts/backup.mjs preview",
     "backup:restore": "node scripts/backup.mjs restore",

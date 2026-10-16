@@ -42,7 +42,8 @@ export const modules: Record<string, Module> = {
   },
   applicants: {
     title: "Recruiting pipeline",
-    description: "Track candidates from application to offer and hire.",
+    description:
+      "Track candidates from application to offer and hire. Offer and Hired transitions require current hiring approval in Interview scorecards.",
     admin: true,
     fields: [
       { ...title, label: "Candidate name" },

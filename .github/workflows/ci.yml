@@ -30,6 +30,7 @@ jobs:
           python3 tests/browser.py
           python3 tests/accounts-browser.py
           python3 tests/platform-browser.py
+          python3 tests/recruiting.py --browser
           python3 tests/payroll-workbook.py
       - run: docker build -t hris:ci .
       - run: python3 tests/container.py hris:ci
