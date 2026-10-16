@@ -94,7 +94,8 @@ export default function PayrollLedgerPanel({
         Opening balances plus approved or paid payroll only. Drafts are
         excluded. PAYE totals represent tax withheld, not confirmed remittance.
         Unrecorded months need review; they do not prove zero income. These
-        totals inform review and do not automatically adjust PAYE.
+        totals support cumulative PAYE only when explicitly selected in period
+        inputs with complete history and evidence confirmation.
       </p>
       <label>
         YTD through month

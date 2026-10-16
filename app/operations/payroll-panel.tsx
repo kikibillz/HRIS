@@ -98,8 +98,9 @@ export default function PayrollPanel({ context }: { context: Context }) {
               Nigeria 2026 · monthly employment income · {data.version}. Review
               pension applicability, NHF election and basis, relief evidence,
               and employer levies with your accountant. Bonuses and partial
-              months use explicitly reviewed PAYE inputs. Automated cumulative
-              PAYE and retroactive corrections remain outside this version.
+              months use reviewed PAYE inputs or explicitly selected cumulative
+              mode. Cumulative mode requires complete history and evidence
+              confirmation. Retroactive corrections remain outside this version.
             </p>
             <p>
               {data.salaries.length} employee compensation records configured.
@@ -116,6 +117,10 @@ export default function PayrollPanel({ context }: { context: Context }) {
             ·{" "}
             <a href="/payroll-period-cases.json" download>
               Download reviewed-period test cases
+            </a>{" "}
+            ·{" "}
+            <a href="/payroll-cumulative-cases.json" download>
+              Download cumulative test cases
             </a>
           </section>
           <details className="panel ops-form">
@@ -544,6 +549,14 @@ export default function PayrollPanel({ context }: { context: Context }) {
               {amount(slip.ytd_after.gross)} · PAYE withheld{" "}
               {amount(slip.ytd_after.paye)}. Includes recorded opening balances
               and earlier released payroll; excludes later runs.
+            </p>
+          )}
+          {slip.cumulative && (
+            <p>
+              Cumulative tax to date: {amount(slip.cumulative.cumulative_tax)} ·
+              prior PAYE withheld: {amount(slip.cumulative.previous_paye)} ·
+              current PAYE: {amount(slip.paye)}. Method reference:{" "}
+              {slip.cumulative.reference}.
             </p>
           )}
           <h3>Earnings</h3>

@@ -1,3 +1,8 @@
+import {
+  calculateCumulativePayroll,
+  previewCumulativePayroll,
+  type CumulativePrior,
+} from "@/lib/payroll-cumulative";
 import { createHash } from "node:crypto";
 import { priorLedger, totalAmounts, ledgerFields } from "@/lib/payroll-ledger";
 import { db } from "@/lib/db";
@@ -175,6 +180,43 @@ export async function POST(request: Request) {
     const policy: PayrollPolicy = saved
       ? JSON.parse(saved.payroll_policy)
       : defaultPolicy;
+    if (b.action === "preview_cumulative") {
+      if (
+        !Number.isSafeInteger(b.employee_id) ||
+        !employeeInCompany(b.employee_id, user.company_id)
+      )
+        return Response.json({ error: "Employee not found." }, { status: 404 });
+      const employee = db
+        .prepare(
+          "SELECT e.joined,c.data FROM employees e JOIN compensation c ON c.employee_id=e.id WHERE e.id=?",
+        )
+        .get(b.employee_id) as { joined: string; data: string } | undefined;
+      if (!employee || JSON.parse(employee.data).excluded)
+        throw Error(
+          "Set included employee compensation before previewing cumulative PAYE.",
+        );
+      const adjustment = parseAdjustment({ ...b, paye_method: "cumulative" });
+      const prior = priorLedger(user.company_id, b.employee_id, b.period);
+      const result = previewCumulativePayroll(
+        JSON.parse(employee.data),
+        policy,
+        b.period,
+        employee.joined,
+        adjustment,
+        prior,
+      );
+      return Response.json(
+        {
+          paye: result.paye,
+          net: result.net,
+          working: result.working,
+          blockers: result.blockers,
+          ready_for_draft: result.ready_for_draft,
+          prior,
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
     if (b.action === "compare") {
       if (!Array.isArray(b.cases) || !b.cases.length || b.cases.length > 200)
         throw Error("Provide 1–200 accountant reference cases.");
@@ -198,16 +240,27 @@ export async function POST(request: Request) {
           period?: string;
           joined?: string;
           adjustment?: Record<string, unknown>;
+          prior?: CumulativePrior;
         }) => {
-          const actual = c.period
-            ? calculatePeriodPayroll(
-                parseSalary(c.input),
-                policy,
-                c.period,
-                c.joined ?? "2026-01-01",
-                parseAdjustment(c.adjustment ?? {}),
-              )
-            : calculatePayroll(parseSalary(c.input), policy);
+          const actual =
+            c.period && c.adjustment?.paye_method === "cumulative"
+              ? calculateCumulativePayroll(
+                  parseSalary(c.input),
+                  policy,
+                  c.period,
+                  c.joined ?? "2026-01-01",
+                  parseAdjustment(c.adjustment),
+                  c.prior!,
+                )
+              : c.period
+                ? calculatePeriodPayroll(
+                    parseSalary(c.input),
+                    policy,
+                    c.period,
+                    c.joined ?? "2026-01-01",
+                    parseAdjustment(c.adjustment ?? {}),
+                  )
+                : calculatePayroll(parseSalary(c.input), policy);
           if (
             !c.expected ||
             !fields.every(
@@ -313,20 +366,30 @@ export async function POST(request: Request) {
             ? JSON.parse(row.data)
             : parseAdjustment({});
           let details;
+          const prior = priorLedger(user.company_id, e.id, b.period);
           try {
-            details = calculatePeriodPayroll(
-              JSON.parse(e.data!),
-              policy,
-              b.period,
-              e.joined,
-              adjustment,
-            );
+            details =
+              adjustment.paye_method === "cumulative"
+                ? calculateCumulativePayroll(
+                    JSON.parse(e.data!),
+                    policy,
+                    b.period,
+                    e.joined,
+                    adjustment,
+                    prior,
+                  )
+                : calculatePeriodPayroll(
+                    JSON.parse(e.data!),
+                    policy,
+                    b.period,
+                    e.joined,
+                    adjustment,
+                  );
           } catch (error) {
             throw Error(
               `${e.name}: ${error instanceof Error ? error.message : "Invalid period inputs"}`,
             );
           }
-          const prior = priorLedger(user.company_id, e.id, b.period);
           const safePrior = {
             ...prior,
             opening: prior.opening

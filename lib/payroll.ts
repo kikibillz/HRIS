@@ -1,6 +1,7 @@
 // All monetary inputs/outputs are integer kobo; percent rates use basis points.
-export const payrollVersion = "NG-2026-reviewed-period-v2";
+export const payrollVersion = "NG-2026-cumulative-option-v3";
 export const sourceUrls = [
+  "https://irs.kg.gov.ng/JRB_2026_PIT_Guidelines_Final.pdf",
   "https://www.nrs.gov.ng/uploads/NIGERIA_TAX_ACT_2025_ef6bb812a5.pdf",
   "https://www.nipc.gov.ng/wp-content/uploads/2025/07/Nigeria-Tax-Act-2025.pdf",
   "https://www.pencom.gov.ng/wp-content/uploads/2023/09/FREQUENTLY-ASKED-QUESTIONS-2023.pdf",
@@ -168,6 +169,9 @@ export type PeriodAdjustment = {
   one_off_deduction: number;
   reviewed_paye: number | null;
   review_note: string;
+  paye_method?: "monthly" | "cumulative";
+  history_confirmed?: boolean;
+  minimum_wage_exempt?: boolean;
 };
 export function parseAdjustment(b: Record<string, unknown>): PeriodAdjustment {
   const bonus = money(b.bonus),
@@ -187,7 +191,23 @@ export function parseAdjustment(b: Record<string, unknown>): PeriodAdjustment {
     throw Error(
       "A PAYE override requires a review note and calculation reference.",
     );
+  const paye_method = b.paye_method ?? "monthly";
+  if (
+    typeof paye_method !== "string" ||
+    !["monthly", "cumulative"].includes(paye_method)
+  )
+    throw Error("Choose a valid PAYE method.");
+  if (
+    paye_method === "cumulative" &&
+    (reviewed_paye !== null || !review_note || b.history_confirmed !== true)
+  )
+    throw Error(
+      "Cumulative PAYE requires a method/evidence reference, history confirmation, and a blank reviewed PAYE amount.",
+    );
   return {
+    paye_method: paye_method as "monthly" | "cumulative",
+    history_confirmed: b.history_confirmed === true,
+    minimum_wage_exempt: b.minimum_wage_exempt === true,
     bonus,
     pensionable_bonus,
     one_off_deduction: money(b.one_off_deduction),
@@ -231,6 +251,10 @@ export function calculatePeriodPayroll(
   joined: string,
   adjustment: PeriodAdjustment = parseAdjustment({}),
 ) {
+  if (adjustment.paye_method === "cumulative")
+    throw Error(
+      "Cumulative PAYE must use the cumulative engine with prior history.",
+    );
   const proration = periodDays(period, joined);
   if (!proration.paid_days)
     throw Error("Employee starts after this payroll period.");

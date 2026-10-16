@@ -1,0 +1,425 @@
+[
+  {
+    "name": "January standard",
+    "period": "2026-01",
+    "joined": "2026-01-01",
+    "input": {
+      "basic": "200000",
+      "pension": false
+    },
+    "adjustment": {
+      "paye_method": "cumulative",
+      "history_confirmed": true,
+      "review_note": "Engineering method fixture; accountant approval pending"
+    },
+    "prior": {
+      "through_period": "2025-12",
+      "totals": {
+        "gross": 0,
+        "paye": 0,
+        "pension": 0,
+        "nhf": 0,
+        "nhis": 0
+      },
+      "unrecorded_periods": []
+    },
+    "expected": {
+      "gross": 20000000,
+      "paye": 2000000,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 2000000,
+      "net": 18000000,
+      "employer_ecs": 200000,
+      "employer_itf": 0
+    },
+    "expected_cumulative_tax": 2000000
+  },
+  {
+    "name": "October standard",
+    "period": "2026-10",
+    "joined": "2026-01-01",
+    "input": {
+      "basic": "200000",
+      "pension": false
+    },
+    "adjustment": {
+      "paye_method": "cumulative",
+      "history_confirmed": true,
+      "review_note": "Engineering method fixture; accountant approval pending"
+    },
+    "prior": {
+      "through_period": "2026-09",
+      "totals": {
+        "gross": 180000000,
+        "paye": 18000000,
+        "pension": 0,
+        "nhf": 0,
+        "nhis": 0
+      },
+      "unrecorded_periods": []
+    },
+    "expected": {
+      "gross": 20000000,
+      "paye": 2000000,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 2000000,
+      "net": 18000000,
+      "employer_ecs": 200000,
+      "employer_itf": 0
+    },
+    "expected_cumulative_tax": 20000000
+  },
+  {
+    "name": "Bonus added once",
+    "period": "2026-10",
+    "joined": "2026-01-01",
+    "input": {
+      "basic": "200000",
+      "pension": false
+    },
+    "adjustment": {
+      "bonus": "100000",
+      "paye_method": "cumulative",
+      "history_confirmed": true,
+      "review_note": "Engineering method fixture; accountant approval pending"
+    },
+    "prior": {
+      "through_period": "2026-09",
+      "totals": {
+        "gross": 180000000,
+        "paye": 18000000,
+        "pension": 0,
+        "nhf": 0,
+        "nhis": 0
+      },
+      "unrecorded_periods": []
+    },
+    "expected": {
+      "gross": 30000000,
+      "paye": 3500000,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 3500000,
+      "net": 26500000,
+      "employer_ecs": 300000,
+      "employer_itf": 0
+    },
+    "expected_cumulative_tax": 21500000
+  },
+  {
+    "name": "Salary increase",
+    "period": "2026-10",
+    "joined": "2026-01-01",
+    "input": {
+      "basic": "300000",
+      "pension": false
+    },
+    "adjustment": {
+      "paye_method": "cumulative",
+      "history_confirmed": true,
+      "review_note": "Engineering method fixture; accountant approval pending"
+    },
+    "prior": {
+      "through_period": "2026-09",
+      "totals": {
+        "gross": 180000000,
+        "paye": 18000000,
+        "pension": 0,
+        "nhf": 0,
+        "nhis": 0
+      },
+      "unrecorded_periods": []
+    },
+    "expected": {
+      "gross": 30000000,
+      "paye": 3500000,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 3500000,
+      "net": 26500000,
+      "employer_ecs": 300000,
+      "employer_itf": 0
+    },
+    "expected_cumulative_tax": 21500000
+  },
+  {
+    "name": "Pension NHF rent",
+    "period": "2026-10",
+    "joined": "2026-01-01",
+    "input": {
+      "basic": "200000",
+      "housing": "100000",
+      "transport": "50000",
+      "nhf": true,
+      "annual_rent": "1200000"
+    },
+    "adjustment": {
+      "paye_method": "cumulative",
+      "history_confirmed": true,
+      "review_note": "Engineering method fixture; accountant approval pending"
+    },
+    "prior": {
+      "through_period": "2026-09",
+      "totals": {
+        "gross": 315000000,
+        "paye": 32364000,
+        "pension": 25200000,
+        "nhf": 4500000,
+        "nhis": 0
+      },
+      "unrecorded_periods": []
+    },
+    "expected": {
+      "gross": 35000000,
+      "paye": 3596000,
+      "pension": 2800000,
+      "employer_pension": 3500000,
+      "nhf": 500000,
+      "nhis": 0,
+      "total_deductions": 6896000,
+      "net": 28104000,
+      "employer_ecs": 350000,
+      "employer_itf": 0
+    },
+    "expected_cumulative_tax": 35960000
+  },
+  {
+    "name": "First job October starter",
+    "period": "2026-10",
+    "joined": "2026-10-16",
+    "input": {
+      "basic": "310000",
+      "pension": false
+    },
+    "adjustment": {
+      "paye_method": "cumulative",
+      "history_confirmed": true,
+      "review_note": "Engineering method fixture; accountant approval pending"
+    },
+    "prior": {
+      "through_period": "2026-09",
+      "totals": {
+        "gross": 0,
+        "paye": 0,
+        "pension": 0,
+        "nhf": 0,
+        "nhis": 0
+      },
+      "unrecorded_periods": []
+    },
+    "expected": {
+      "gross": 16000000,
+      "paye": 0,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 0,
+      "net": 16000000,
+      "employer_ecs": 160000,
+      "employer_itf": 0
+    },
+    "expected_cumulative_tax": 0
+  },
+  {
+    "name": "December annual reconciliation",
+    "period": "2026-12",
+    "joined": "2026-01-01",
+    "input": {
+      "basic": "250000",
+      "pension": false
+    },
+    "adjustment": {
+      "paye_method": "cumulative",
+      "history_confirmed": true,
+      "review_note": "Engineering method fixture; accountant approval pending"
+    },
+    "prior": {
+      "through_period": "2026-11",
+      "totals": {
+        "gross": 275000000,
+        "paye": 30250000,
+        "pension": 0,
+        "nhf": 0,
+        "nhis": 0
+      },
+      "unrecorded_periods": []
+    },
+    "expected": {
+      "gross": 25000000,
+      "paye": 2750000,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 2750000,
+      "net": 22250000,
+      "employer_ecs": 250000,
+      "employer_itf": 0
+    },
+    "expected_cumulative_tax": 33000000
+  },
+  {
+    "name": "December top band",
+    "period": "2026-12",
+    "joined": "2026-01-01",
+    "input": {
+      "basic": "5000000",
+      "pension": false
+    },
+    "adjustment": {
+      "paye_method": "cumulative",
+      "history_confirmed": true,
+      "review_note": "Engineering method fixture; accountant approval pending"
+    },
+    "prior": {
+      "through_period": "2026-11",
+      "totals": {
+        "gross": 5500000000,
+        "paye": 1185250000,
+        "pension": 0,
+        "nhf": 0,
+        "nhis": 0
+      },
+      "unrecorded_periods": []
+    },
+    "expected": {
+      "gross": 500000000,
+      "paye": 107750000,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 107750000,
+      "net": 392250000,
+      "employer_ecs": 5000000,
+      "employer_itf": 0
+    },
+    "expected_cumulative_tax": 1293000000
+  },
+  {
+    "name": "Kobo rounding",
+    "period": "2026-07",
+    "joined": "2026-01-01",
+    "input": {
+      "basic": "200000.01",
+      "nhis": "12.34",
+      "annual_rent": "987654.32"
+    },
+    "adjustment": {
+      "paye_method": "cumulative",
+      "history_confirmed": true,
+      "review_note": "Engineering method fixture; accountant approval pending"
+    },
+    "prior": {
+      "through_period": "2026-06",
+      "totals": {
+        "gross": 120000006,
+        "paye": 6000000,
+        "pension": 9600000,
+        "nhf": 0,
+        "nhis": 7404
+      },
+      "unrecorded_periods": []
+    },
+    "expected": {
+      "gross": 20000001,
+      "paye": 4590310,
+      "pension": 1600000,
+      "employer_pension": 2000000,
+      "nhf": 0,
+      "nhis": 1234,
+      "total_deductions": 6191544,
+      "net": 13808457,
+      "employer_ecs": 200000,
+      "employer_itf": 0
+    },
+    "expected_cumulative_tax": 10590310
+  },
+  {
+    "name": "Confirmed minimum wage exemption",
+    "period": "2026-10",
+    "joined": "2026-01-01",
+    "input": {
+      "basic": "70000",
+      "pension": false
+    },
+    "adjustment": {
+      "minimum_wage_exempt": true,
+      "paye_method": "cumulative",
+      "history_confirmed": true,
+      "review_note": "Engineering method fixture; accountant approval pending"
+    },
+    "prior": {
+      "through_period": "2026-09",
+      "totals": {
+        "gross": 63000000,
+        "paye": 0,
+        "pension": 0,
+        "nhf": 0,
+        "nhis": 0
+      },
+      "unrecorded_periods": []
+    },
+    "expected": {
+      "gross": 7000000,
+      "paye": 0,
+      "pension": 0,
+      "employer_pension": 0,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 0,
+      "net": 7000000,
+      "employer_ecs": 70000,
+      "employer_itf": 0
+    },
+    "expected_cumulative_tax": 0
+  },
+  {
+    "name": "Prior under-deduction recovered",
+    "period": "2026-10",
+    "joined": "2026-01-01",
+    "input": {
+      "basic": "200000"
+    },
+    "adjustment": {
+      "paye_method": "cumulative",
+      "history_confirmed": true,
+      "review_note": "Engineering method fixture; accountant approval pending"
+    },
+    "prior": {
+      "through_period": "2026-09",
+      "totals": {
+        "gross": 180000000,
+        "paye": 9000000,
+        "pension": 14400000,
+        "nhf": 0,
+        "nhis": 0
+      },
+      "unrecorded_periods": []
+    },
+    "expected": {
+      "gross": 20000000,
+      "paye": 8600000,
+      "pension": 1600000,
+      "employer_pension": 2000000,
+      "nhf": 0,
+      "nhis": 0,
+      "total_deductions": 10200000,
+      "net": 9800000,
+      "employer_ecs": 200000,
+      "employer_itf": 0
+    },
+    "expected_cumulative_tax": 17600000
+  }
+]

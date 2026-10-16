@@ -36,3 +36,25 @@ console.log(`PASS: ${periodCases.length} independent reviewed-period fixtures, c
 
 for(let n=1;n<=100;n++){const salary=parseSalary({basic:(n*5432.17).toFixed(2),housing:'123.45',other:'456.78',nhf:n%2===0,pension:n%3!==0});const fixed=calculatePayroll(salary);const period=calculatePeriodPayroll(salary,defaultPolicy,'2026-10','2026-01-01');for(const key of ['gross','pension','paye','nhf','nhis','net','total_deductions','employer_pension','employer_ecs','employer_itf'])assert.equal(period[key],fixed[key],`Unchanged recurring calculation: ${key}`);}
 console.log('PASS: 100 unchanged full-month payroll comparisons.');
+
+const {calculateCumulativePayroll,previewCumulativePayroll}=await import('../lib/payroll-cumulative.ts');
+const cumulativeCases=JSON.parse(readFileSync('public/payroll-cumulative-cases.json','utf8'));
+for(const c of cumulativeCases){const salary=parseSalary(c.input),a=parseAdjustment(c.adjustment);const result=calculateCumulativePayroll(salary,defaultPolicy,c.period,c.joined,a,c.prior);for(const [key,expected] of Object.entries(c.expected))assert.equal(result[key],expected,`${c.name}: ${key}`);assert.equal(result.cumulative.cumulative_tax,c.expected_cumulative_tax);assert.equal(result.cumulative.previous_paye+result.paye,result.cumulative.cumulative_tax);assert.equal(result.net+result.total_deductions,result.gross);}
+const template=cumulativeCases[1];
+const ca=parseAdjustment(template.adjustment),cs=parseSalary(template.input);
+assert.throws(()=>parseAdjustment({...template.adjustment,reviewed_paye:'1'}));
+assert.throws(()=>parseAdjustment({...template.adjustment,history_confirmed:false}));
+assert.throws(()=>calculatePeriodPayroll(cs,defaultPolicy,template.period,template.joined,ca));
+assert.throws(()=>calculateCumulativePayroll(cs,defaultPolicy,template.period,template.joined,ca,{...template.prior,unrecorded_periods:['2026-01']}));
+assert.throws(()=>calculateCumulativePayroll(cs,defaultPolicy,template.period,template.joined,ca,{...template.prior,through_period:'2026-08'}));
+const refundPrior={...template.prior,totals:{...template.prior.totals,paye:21000000}};
+const refund=previewCumulativePayroll(cs,defaultPolicy,template.period,template.joined,ca,refundPrior);assert.equal(refund.ready_for_draft,false);assert.equal(refund.working.refund_due,1000000);assert.throws(()=>calculateCumulativePayroll(cs,defaultPolicy,template.period,template.joined,ca,refundPrior));
+const underpaid={...template.prior,totals:{...template.prior.totals,gross:1000000000,paye:0}};
+assert.ok(previewCumulativePayroll(cs,defaultPolicy,template.period,template.joined,ca,underpaid).net<0);assert.throws(()=>calculateCumulativePayroll(cs,defaultPolicy,template.period,template.joined,ca,underpaid));
+assert.throws(()=>calculateCumulativePayroll(cs,defaultPolicy,template.period,template.joined,{...ca,minimum_wage_exempt:true},template.prior));
+let prior={through_period:'2025-12',totals:{gross:0,paye:0,pension:0,nhf:0,nhis:0},unrecorded_periods:[]};
+const regular=parseSalary({basic:'123456.78',housing:'1234.56',nhf:true});
+for(let month=1;month<=12;month++){const period=`2026-${String(month).padStart(2,'0')}`;const r=calculateCumulativePayroll(regular,defaultPolicy,period,'2026-01-01',ca,prior);prior={through_period:period,totals:Object.fromEntries(['gross','paye','pension','nhf','nhis'].map(k=>[k,prior.totals[k]+r[k]])),unrecorded_periods:[]};if(month===12)assert.equal(prior.totals.paye,calculatePayroll(regular).annual_paye);}
+console.log(`PASS: ${cumulativeCases.length} independent cumulative cases, 12-month exact annual reconciliation, history validation, mutually exclusive methods, exemption checks, refund and negative-net blockers. Accountant method approval pending.`);
+
+assert.throws(()=>parseAdjustment({paye_method:['cumulative']}));

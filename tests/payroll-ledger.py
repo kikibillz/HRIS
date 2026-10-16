@@ -90,6 +90,41 @@ with tempfile.TemporaryDirectory(prefix='hris-ytd-') as directory:
    export=list(csv.DictReader(io.StringIO(admin.expect(200,'/api/payroll-ledger?period=2026-11&format=csv'))));assert next(r for r in export if r['employee_id']==str(wid))['gross_kobo']=='220000000'
    assert 'worker@ytd.test' not in other.expect(200,'/api/payroll-ledger?format=csv')
    admin.payroll(400,action='draft',period='2026-08')
+   # Opt-in cumulative PAYE uses server-owned opening/released totals, not client priors.
+   cumulative={'action':'preview_cumulative','employee_id':wid,'period':'2026-12','paye_method':'cumulative','history_confirmed':True,'review_note':'TEST cumulative calendar-month method evidence'}
+   for c in [guest,worker,manager]:c.payroll(401 if c is guest else 403,**cumulative)
+   other.payroll(404,**cumulative)
+   admin.expect(403,'/api/payroll',cumulative,origin='https://untrusted.example')
+   admin.payroll(400,**{**cumulative,'history_confirmed':False});admin.payroll(400,**{**cumulative,'reviewed_paye':'0'})
+   calculated=admin.payroll(200,**{**cumulative,'prior':{'totals':{'gross':1,'paye':0}}})
+   assert calculated['ready_for_draft'] and calculated['paye']==8600000 and calculated['working']['previous_paye']==12520000
+   assert calculated['working']['cumulative_tax']==21120000
+   saved_input={**cumulative,'action':'adjustment'}
+   admin.payroll(200,**saved_input)
+   admin.payroll(200,action='draft',period='2026-12');dec=next(r['id'] for r in admin.expect(200,'/api/payroll')['runs'] if r['period']=='2026-12')
+   decitem=next(i for i in admin.expect(200,'/api/payroll')['items'] if i['run_id']==dec and i['employee_id']==wid);decdata=json.loads(decitem['details'])
+   assert decdata['paye']==calculated['paye'] and decdata['cumulative']['previous_paye']==12520000
+   assert decdata['ytd_after']['paye']==21120000 and decdata['adjustment']['paye_method']=='cumulative'
+   admin.payroll(400,**{**saved_input,'bonus':'1'})
+   assert len(worker.expect(200,'/api/payroll')['items'])==2
+   admin.payroll(200,action='approve',run_id=dec,reviewed=True)
+   assert json.loads(next(i['details'] for i in worker.expect(200,'/api/payroll')['items'] if i['run_id']==dec))['cumulative']['cumulative_tax']==21120000
+   compare=json.load(open('public/payroll-cumulative-cases.json'));assert admin.payroll(200,action='compare',cases=compare)['all_passed']
+   # A company without reviewed prior-month coverage cannot infer zero income.
+   other.payroll(200,action='salary',employee_id=oid,basic='200000')
+   foreign_preview={**cumulative,'employee_id':oid}
+   assert 'complete prior-month history' in other.payroll(400,**foreign_preview)['error']
+   # Missing history also blocks an actual draft; the transaction leaves no partial run.
+   other.payroll(200,**{**foreign_preview,'action':'adjustment'})
+   other.payroll(400,action='draft',period='2026-12');assert not other.expect(200,'/api/payroll')['runs']
+   # Refunds and excessive catch-up deductions are review blockers, not automatic payments.
+   refund_opening={**opening,'employee_id':oid,'through_period':'2026-11','gross':'2200000','pension':'176000','paye':'300000'}
+   other.opening(200,**refund_opening)
+   refund=other.payroll(200,**foreign_preview);assert not refund['ready_for_draft'] and refund['working']['refund_due']==8880000
+   other.payroll(400,action='draft',period='2026-12');assert not other.expect(200,'/api/payroll')['runs']
+   other.opening(200,**{**refund_opening,'gross':'10000000','pension':'0','paye':'0'})
+   excessive=other.payroll(200,**foreign_preview);assert not excessive['ready_for_draft'] and excessive['net']<0
+   other.payroll(400,action='draft',period='2026-12');assert not other.expect(200,'/api/payroll')['runs']
    # Restart against the same disposable DB to verify ledger and review persistence.
    server.terminate();server.wait(timeout=10);server=start();wait()
    assert worker.expect(200,'/api/payroll-ledger?period=2026-11')['rows'][0]['totals']==latest['totals']
