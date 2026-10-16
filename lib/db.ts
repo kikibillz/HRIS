@@ -149,3 +149,15 @@ db.exec(`CREATE TABLE IF NOT EXISTS payroll_adjustments(
  period TEXT NOT NULL, data TEXT NOT NULL, updated_by INTEGER NOT NULL REFERENCES accounts(id),
  updated TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),
  PRIMARY KEY(company_id,employee_id,period));`);
+
+// Opening totals supplement imported history; they never rewrite payroll snapshots.
+db.exec(`CREATE TABLE IF NOT EXISTS payroll_openings(
+ id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),employee_id INTEGER NOT NULL REFERENCES employees(id),
+ year INTEGER NOT NULL CHECK(year=2026),through_period TEXT NOT NULL,data TEXT NOT NULL,reviewed_by TEXT NOT NULL,reference TEXT NOT NULL,
+ created_by INTEGER NOT NULL REFERENCES accounts(id),updated TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(company_id,employee_id,year));
+CREATE TABLE IF NOT EXISTS payroll_opening_events(
+ id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),employee_id INTEGER NOT NULL REFERENCES employees(id),
+ action TEXT NOT NULL,snapshot TEXT NOT NULL,actor_id INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+CREATE TABLE IF NOT EXISTS payroll_reviews(
+ id INTEGER PRIMARY KEY,run_id INTEGER NOT NULL UNIQUE REFERENCES payroll_runs(id),reviewed_by TEXT NOT NULL,reference TEXT NOT NULL,notes TEXT NOT NULL,
+ snapshot_hash TEXT NOT NULL,recorded_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));`);

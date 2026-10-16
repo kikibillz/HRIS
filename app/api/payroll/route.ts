@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { priorLedger, totalAmounts, ledgerFields } from "@/lib/payroll-ledger";
 import { db } from "@/lib/db";
 import { currentUser, requireUser } from "@/lib/auth";
 import { employeeInCompany, audit, notify } from "@/lib/tenant";
@@ -51,6 +53,14 @@ export async function GET() {
       runs,
       items,
       salaries,
+      reviews:
+        user.access === "admin"
+          ? db
+              .prepare(
+                "SELECT v.*,r.period FROM payroll_reviews v JOIN payroll_runs r ON r.id=v.run_id WHERE r.company_id=? ORDER BY v.id DESC",
+              )
+              .all(user.company_id)
+          : [],
       adjustments:
         user.access === "admin"
           ? db
@@ -239,6 +249,16 @@ export async function POST(request: Request) {
           !/^2026-(0[1-9]|1[0-2])$/.test(b.period)
         )
           throw Error("This rule version supports 2026 monthly periods only.");
+        if (
+          db
+            .prepare(
+              "SELECT id FROM payroll_runs WHERE company_id=? AND (period>? OR (period<? AND status='Draft')) LIMIT 1",
+            )
+            .get(user.company_id, b.period, b.period)
+        )
+          throw Error(
+            "Create payroll in chronological order. Approve or discard earlier drafts first; later runs prevent backdated payroll so YTD snapshots stay consistent.",
+          );
         const staff = db
           .prepare(
             "SELECT e.id,e.name,e.joined,c.data FROM employees e JOIN company_employees ce ON ce.employee_id=e.id LEFT JOIN compensation c ON c.employee_id=e.id WHERE ce.company_id=? AND e.status='Active'",
@@ -306,9 +326,34 @@ export async function POST(request: Request) {
               `${e.name}: ${error instanceof Error ? error.message : "Invalid period inputs"}`,
             );
           }
+          const prior = priorLedger(user.company_id, e.id, b.period);
+          const safePrior = {
+            ...prior,
+            opening: prior.opening
+              ? {
+                  id: prior.opening.id,
+                  through_period: prior.opening.through_period,
+                  amounts: prior.opening.amounts,
+                }
+              : null,
+          };
+          const ytdAfter = totalAmounts(
+            Object.fromEntries(
+              ledgerFields.map((k) => [k, prior.totals[k] + details[k]]),
+            ),
+          );
           db.prepare(
             "INSERT INTO payroll_items(run_id,employee_id,details) VALUES (?,?,?)",
-          ).run(run, e.id, JSON.stringify({ ...details, name: e.name }));
+          ).run(
+            run,
+            e.id,
+            JSON.stringify({
+              ...details,
+              name: e.name,
+              ytd_before: safePrior,
+              ytd_after: ytdAfter,
+            }),
+          );
         }
         audit(user, "Payroll draft created", String(run));
       } else {
@@ -341,6 +386,48 @@ export async function POST(request: Request) {
               `Your ${run.period} payslip is available in Payroll & payslips.`,
             );
           audit(user, "Payroll approved", String(run.id));
+        } else if (b.action === "record_review") {
+          if (!["Approved", "Paid"].includes(run.status))
+            throw Error(
+              "Record external review evidence against released payroll; draft inputs can still change.",
+            );
+          const reviewedBy = String(b.reviewed_by ?? "").trim(),
+            reference = String(b.reference ?? "").trim(),
+            notes = String(b.notes ?? "").trim();
+          if (
+            !reviewedBy ||
+            reviewedBy.length > 120 ||
+            !reference ||
+            reference.length > 1000 ||
+            notes.length > 2000 ||
+            b.confirmed !== true
+          )
+            throw Error(
+              "Provide the reviewer's name, evidence reference and explicit confirmation that this records an external review claim.",
+            );
+          const frozen = db
+            .prepare("SELECT period,policy FROM payroll_runs WHERE id=?")
+            .get(run.id);
+          const items = db
+            .prepare(
+              "SELECT employee_id,details FROM payroll_items WHERE run_id=? ORDER BY employee_id",
+            )
+            .all(run.id);
+          const snapshot_hash = createHash("sha256")
+            .update(JSON.stringify({ run: frozen, items }))
+            .digest("hex");
+          if (
+            db
+              .prepare("SELECT id FROM payroll_reviews WHERE run_id=?")
+              .get(run.id)
+          )
+            throw Error(
+              "This released payroll already has an immutable review record.",
+            );
+          db.prepare(
+            "INSERT INTO payroll_reviews(run_id,reviewed_by,reference,notes,snapshot_hash,recorded_by) VALUES(?,?,?,?,?,?)",
+          ).run(run.id, reviewedBy, reference, notes, snapshot_hash, user.id);
+          audit(user, "External payroll review recorded", String(run.id));
         } else if (b.action === "record_payment") {
           if (
             run.status !== "Approved" ||

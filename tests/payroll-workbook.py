@@ -16,7 +16,11 @@ fields={'gross':'P','pension':'Q','employer_pension':'R','nhf':'S','paye':'J','n
 for i,c in enumerate(periods,2):
  for key,col in fields.items():assert kobo(w['Period review'][f'{col}{i}'].value)==c['expected'][key],(c['name'],key,w['Period review'][f'{col}{i}'].value,c['expected'][key])
  assert w['Period review'][f'Y{i}'].value==0
+for i,(gross,net) in enumerate([(180000000,156600000),(200000000,173240000),(200000000,173240000),(220000000,189880000)],2):
+ assert kobo(w['YTD reconciliation'][f'K{i}'].value)==gross
+ assert kobo(w['YTD reconciliation'][f'N{i}'].value)==net
+ assert w['YTD reconciliation'][f'Q{i}'].value==0 and w['YTD reconciliation'][f'R{i}'].value==0
 for sheet in w:
  for row in sheet:
   for cell in row:assert cell.data_type!='e',(sheet.title,cell.coordinate,cell.value)
-print(f'PASS: cached Excel formulas match {len(fixed)} fixed-month and {len(periods)} reviewed-period fixtures; no formula errors. Supplied PAYE is not accountant approval.')
+print(f'PASS: cached Excel formulas match {len(fixed)} fixed-month and {len(periods)} reviewed-period fixtures; four YTD reconciliation fixtures; no formula errors. Supplied PAYE is not accountant approval.')

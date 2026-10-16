@@ -47,6 +47,10 @@ INSERT INTO login_attempts VALUES('existing@example.test',2,9999999999999);
         db.execute('INSERT INTO company_employees(employee_id,company_id) VALUES(42,1)')
         db.execute('INSERT INTO reporting_lines VALUES(41,24)')
         db.execute("INSERT INTO reporting_events(employee_id,manager_id,actor_id) VALUES(41,24,23)")
+        db.execute("INSERT INTO compensation(employee_id,data) VALUES(41,?)",('{"basic":10000000,"version":"legacy-input"}',))
+        db.execute("INSERT INTO payroll_runs(id,company_id,period,status,policy,created_by) VALUES(77,1,'2026-09','Paid',?,23)",('{"version":"NG-2026-fixed-monthly-v1"}',))
+        db.execute("INSERT INTO payroll_items(run_id,employee_id,details) VALUES(77,41,?)",('{"name":"Existing person","gross":10000000,"paye":123400,"net":9876600,"version":"NG-2026-fixed-monthly-v1"}',))
+        db.execute("INSERT INTO payments(run_id,reference,paid_on,created_by) VALUES(77,'EXISTING-BANK-REF','2026-09-30',23)")
         tables = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
         assigned = {table: db.execute(f'SELECT * FROM {table}').fetchall() for table in tables}
     subprocess.run(['node', '--experimental-strip-types', '--input-type=module', '-e',
@@ -54,4 +58,4 @@ INSERT INTO login_attempts VALUES('existing@example.test',2,9999999999999);
                    env={**os.environ, 'HRIS_DATA_DIR': directory}, check=True, capture_output=True)
     with sqlite3.connect(database) as db:
         assert assigned == {table: db.execute(f'SELECT * FROM {table}').fetchall() for table in tables}
-print('PASS: migration is repeatable; existing accounts, hashes, sessions, employees, requests, reasons and history are unchanged.')
+print('PASS: migration is repeatable; existing accounts, hashes, sessions, employees, requests, reasons and history, including legacy paid payroll, are unchanged.')

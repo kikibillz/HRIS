@@ -1,0 +1,101 @@
+"""Disposable-database integration tests for opening balances, YTD and review evidence."""
+import csv, hashlib, http.cookiejar, io, json, os, secrets, sqlite3, subprocess, tempfile, time, urllib.error, urllib.request
+BASE='http://127.0.0.1:3107';password=secrets.token_urlsafe(24);checks=0
+class Client:
+ def __init__(self):self.http=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+ def expect(self,status,path,body=None,origin=BASE):
+  global checks
+  req=urllib.request.Request(BASE+path,data=None if body is None else json.dumps(body).encode(),headers={'Origin':origin,'Content-Type':'application/json'})
+  try:r=self.http.open(req,timeout=15)
+  except urllib.error.HTTPError as e:r=e
+  with r:
+   raw=r.read();data=json.loads(raw) if r.headers.get('Content-Type','').startswith('application/json') else raw.decode(errors='replace')
+  assert r.status==status,(path,status,r.status,str(data)[:500]);checks+=1;return data
+ def payroll(self,status,**body):return self.expect(status,'/api/payroll',body)
+ def opening(self,status,**body):return self.expect(status,'/api/payroll-ledger',body)
+with tempfile.TemporaryDirectory(prefix='hris-ytd-') as directory:
+ with open(os.path.join(directory,'server.log'),'w+') as log:
+  env={**os.environ,'HRIS_DATA_DIR':directory}
+  def start():return subprocess.Popen(['node','node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port','3107'],env=env,stdout=log,stderr=log)
+  def wait():
+   for _ in range(80):
+    try:
+     if urllib.request.urlopen(BASE+'/login',timeout=3).status==200:return
+    except OSError:pass
+    time.sleep(.25)
+   raise AssertionError('Test server did not start')
+  server=start()
+  try:
+   wait();guest,admin,other,worker,manager=Client(),Client(),Client(),Client(),Client()
+   for c,name,email in [(admin,'YTD Company','admin@ytd.test'),(other,'Other Company','admin@other.test')]:c.expect(201,'/api/companies',{'company':name,'name':name+' Admin','email':email,'password':password})
+   context=admin.expect(200,'/api/operations');company=context['user']['company_id'];aid=context['user']['employee_id'];oid=other.expect(200,'/api/operations')['user']['employee_id']
+   imported=admin.expect(200,'/api/import',{'action':'commit','csv':'name,email,role,department,joined,basic,pension\nYTD Worker,worker@ytd.test,Engineer,Payroll,2026-10-01,200000,true\nYTD Manager,manager@ytd.test,Lead,Payroll,2026-10-01,200000,true\n'})
+   people=admin.expect(200,'/api/operations')['employees'];wid=next(p['id'] for p in people if p['email']=='worker@ytd.test');mid=next(p['id'] for p in people if p['email']=='manager@ytd.test')
+   # Invitations use real lifecycle routes and sessions; no account/password mutation in SQLite.
+   for c,eid,email,role in [(worker,wid,'worker@ytd.test','employee'),(manager,mid,'manager@ytd.test','manager')]:
+    link=admin.expect(200,'/api/account-links',{'employee_id':eid,'purpose':'invite','access':role})
+    from urllib.parse import urlparse
+    token=urlparse(link['path']).fragment
+    # Invitation URL fragments carry the token; the redemption endpoint expects it directly.
+    if token.startswith('token='):token=token[6:]
+    c.expect(200,'/api/account-links/redeem',{'token':token,'password':password})
+    c.expect(200,'/api/auth',{'email':email,'password':password})
+   admin.payroll(200,action='salary',employee_id=aid,basic='0',excluded=True)
+   admin.payroll(200,action='salary',employee_id=mid,basic='0',excluded=True)
+   opening={'action':'opening','employee_id':wid,'through_period':'2026-09','gross':'1800000','paye':'90000','pension':'144000','employer_pension':'180000','nhf':'0','nhis':'0','other_deductions':'0','employer_ecs':'18000','employer_itf':'0','reviewed_by':'Fictional Reviewer','reference':'Fixture source payroll Jan–Sep','confirmed':True}
+   guest.expect(401,'/api/payroll-ledger');guest.opening(401,**opening)
+   for c in [worker,manager]:
+    c.opening(403,**opening);c.expect(403,'/api/payroll-ledger?format=csv');c.expect(404,f'/api/payroll-ledger?employee_id={aid}');assert len(c.expect(200,'/api/payroll-ledger')['rows'])==1
+   other.opening(404,**opening);admin.opening(404,**{**opening,'employee_id':oid})
+   admin.expect(403,'/api/payroll-ledger',opening,origin='https://untrusted.example')
+   for override in [{'confirmed':False},{'reviewed_by':''},{'reference':''},{'through_period':'2025-12'},{'through_period':'2026-12'},{'through_period':'2026-00'},{'gross':'1'},{'gross':'-1'},{'paye':'1.001'}]:admin.opening(400,**{**opening,**override})
+   admin.expect(400,'/api/payroll-ledger?period=2027-01');admin.expect(404,'/api/payroll-ledger?employee_id=bad')
+   admin.opening(200,**opening)
+   assert len(admin.expect(200,'/api/payroll-ledger')['events'])==1
+   own=worker.expect(200,'/api/payroll-ledger?period=2026-09');assert not own['openings'] and not own['events'];assert 'reference' not in own['rows'][0]['opening'];assert own['rows'][0]['totals']['gross']==180000000 and own['rows'][0]['totals']['paye']==9000000
+   assert admin.expect(200,f'/api/payroll-ledger?period=2026-08&employee_id={wid}')['rows'][0]['totals']['gross']==0
+   admin.opening(200,action='clear_opening',employee_id=wid);admin.opening(200,**opening);assert len(admin.expect(200,'/api/payroll-ledger')['events'])==3
+   admin.payroll(400,action='draft',period='2026-09');assert not admin.expect(200,'/api/payroll')['runs']
+   admin.payroll(200,action='draft',period='2026-10');draft=admin.expect(200,'/api/payroll');run=draft['runs'][0]['id'];item=next(i for i in draft['items'] if i['employee_id']==wid);frozen=json.loads(item['details'])
+   assert frozen['ytd_before']['totals']['gross']==180000000 and frozen['ytd_after']['gross']==200000000
+   assert frozen['ytd_after']['paye']==9000000+frozen['paye'];assert 'reference' not in frozen['ytd_before']['opening']
+   assert worker.expect(200,'/api/payroll-ledger?period=2026-10')['rows'][0]['totals']['gross']==180000000
+   admin.opening(400,**opening);admin.opening(400,action='clear_opening',employee_id=wid)
+   admin.payroll(400,action='draft',period='2026-11')
+   admin.payroll(400,action='record_review',run_id=run,reviewed_by='Fictional Reviewer',reference='External evidence',confirmed=True)
+   admin.payroll(200,action='discard',run_id=run);admin.opening(200,**opening)
+   admin.payroll(200,action='draft',period='2026-10');draft=admin.expect(200,'/api/payroll');run=draft['runs'][0]['id'];frozen=json.loads(next(i['details'] for i in draft['items'] if i['employee_id']==wid))
+   admin.payroll(200,action='approve',run_id=run,reviewed=True)
+   admin.opening(400,**opening);admin.opening(400,action='clear_opening',employee_id=wid)
+   row=worker.expect(200,'/api/payroll-ledger?period=2026-10')['rows'][0];assert row['totals']['gross']==200000000 and row['unrecorded_periods']==[] and len(row['entries'])==1
+   assert row['totals']['net']+row['totals']['total_deductions']==row['totals']['gross']
+   admin.payroll(200,action='record_payment',run_id=run,reference='BANK-FIXTURE')
+   assert worker.expect(200,'/api/payroll-ledger?period=2026-10')['rows'][0]['totals']==row['totals']
+   evidence={'action':'record_review','run_id':run,'reviewed_by':'Fictional External Accountant','reference':'TEST-EVIDENCE-ONLY','notes':'Not a real accountant approval.','confirmed':True}
+   for c in [worker,manager]:c.payroll(403,**evidence)
+   other.payroll(400,**evidence);admin.payroll(400,**{**evidence,'confirmed':False});admin.payroll(400,**{**evidence,'reference':''})
+   admin.payroll(200,**evidence);admin.payroll(400,**evidence)
+   reviews=admin.expect(200,'/api/payroll')['reviews'];assert len(reviews)==1 and reviews[0]['reference']=='TEST-EVIDENCE-ONLY' and len(reviews[0]['snapshot_hash'])==64
+   assert not worker.expect(200,'/api/payroll')['reviews'] and not other.expect(200,'/api/payroll')['reviews']
+   # Validate the fingerprint directly against the persisted policy and item snapshots.
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    policy=db.execute('SELECT period,policy FROM payroll_runs WHERE id=?',(run,)).fetchone();items=db.execute('SELECT employee_id,details FROM payroll_items WHERE run_id=? ORDER BY employee_id',(run,)).fetchall()
+    content={'run':dict(zip(['period','policy'],policy)),'items':[dict(zip(['employee_id','details'],i)) for i in items]}
+    assert hashlib.sha256(json.dumps(content,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()==reviews[0]['snapshot_hash']
+   admin.payroll(200,action='draft',period='2026-11');nov=next(r['id'] for r in admin.expect(200,'/api/payroll')['runs'] if r['period']=='2026-11')
+   assert worker.expect(200,'/api/payroll-ledger?period=2026-11')['rows'][0]['totals']['gross']==200000000
+   admin.payroll(200,action='approve',run_id=nov,reviewed=True)
+   latest=worker.expect(200,'/api/payroll-ledger?period=2026-11')['rows'][0];assert latest['totals']['gross']==220000000
+   assert next(i for i in worker.expect(200,'/api/payroll')['items'] if i['run_id']==run)['details']==next(i for i in draft['items'] if i['employee_id']==wid)['details']
+   export=list(csv.DictReader(io.StringIO(admin.expect(200,'/api/payroll-ledger?period=2026-11&format=csv'))));assert next(r for r in export if r['employee_id']==str(wid))['gross_kobo']=='220000000'
+   assert 'worker@ytd.test' not in other.expect(200,'/api/payroll-ledger?format=csv')
+   admin.payroll(400,action='draft',period='2026-08')
+   # Restart against the same disposable DB to verify ledger and review persistence.
+   server.terminate();server.wait(timeout=10);server=start();wait()
+   assert worker.expect(200,'/api/payroll-ledger?period=2026-11')['rows'][0]['totals']==latest['totals']
+   assert admin.expect(200,'/api/payroll')['reviews']==reviews
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:assert not db.execute('PRAGMA foreign_key_check').fetchall()
+   print(f'PASS: {checks} ledger HTTP checks; opening validation, role/company isolation, overlap prevention, draft exclusion, chronology, immutable YTD snapshots, exact exports, review fingerprints and persistence.')
+  except Exception:
+   log.seek(0);print(log.read()[-6000:]);raise
+  finally:server.terminate();server.wait(timeout=10)

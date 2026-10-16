@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
+import PayrollLedgerPanel from "./payroll-ledger-panel";
+import PayrollReviewForm, { type PayrollReview } from "./payroll-review";
 import PayrollAdjustments, { type AdjustmentRow } from "./payroll-adjustments";
 import { api, amount, type Context } from "./types";
 import {
@@ -20,6 +22,7 @@ type Item = {
 type Run = { id: number; period: string; status: string };
 type Data = {
   runs: Run[];
+  reviews: PayrollReview[];
   adjustments: AdjustmentRow[];
   items: Item[];
   salaries: { employee_id: number; name: string; data: string }[];
@@ -431,6 +434,14 @@ export default function PayrollPanel({ context }: { context: Context }) {
                   </a>
                 </p>
               )}
+              {run.status !== "Draft" && (
+                <PayrollReviewForm
+                  runId={run.id}
+                  review={data.reviews.find((r) => r.run_id === run.id)}
+                  busy={busy}
+                  action={action}
+                />
+              )}
               {run.status === "Approved" && (
                 <form
                   onSubmit={(e) => {
@@ -504,6 +515,10 @@ export default function PayrollPanel({ context }: { context: Context }) {
           </table>
         </div>
       </section>
+      <PayrollLedgerPanel
+        context={context}
+        revision={data.runs.map((r) => `${r.id}:${r.status}`).join(",")}
+      />
       {selected && (
         <section className="panel ops-form payslip">
           <div className="section-head">
@@ -521,6 +536,14 @@ export default function PayrollPanel({ context }: { context: Context }) {
               Paid calendar days: {slip.proration.paid_days} /{" "}
               {slip.proration.days}. {slip.tax_method}. Review reference:{" "}
               {slip.adjustment.review_note || "Standard recurring calculation"}.
+            </p>
+          )}
+          {slip.ytd_after && (
+            <p>
+              2026 totals through this payroll: gross{" "}
+              {amount(slip.ytd_after.gross)} · PAYE withheld{" "}
+              {amount(slip.ytd_after.paye)}. Includes recorded opening balances
+              and earlier released payroll; excludes later runs.
             </p>
           )}
           <h3>Earnings</h3>

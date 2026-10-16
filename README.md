@@ -92,3 +92,5 @@ The operator command issues a one-hour reset link, records the action, and prese
 API: POST/DELETE `/api/auth`, POST/PATCH `/api/employees`, POST `/api/departments`, POST/PATCH `/api/leaves`, POST `/api/password`, POST/DELETE `/api/account-links`, POST `/api/account-links/redeem`. All workforce mutations require authentication and enforce roles server-side.
 
 Period payroll now supports calendar-day starter proration, bonuses and one-off deductions. Bonuses/partial months require an explicit reviewed PAYE input and calculation reference; automatic cumulative PAYE is not implemented. See `docs/HR-SUITE.md` and the workbook’s Period review sheet.
+
+Payroll YTD reconciliation now supports reviewed opening balances, approved/paid totals, per-payslip YTD snapshots, and administrator CSV export. Employees see only their own totals. Released payroll accepts an immutable external-review evidence record bound to its calculation fingerprint. These features do not automatically calculate cumulative PAYE or verify accountant identity; see `docs/HR-SUITE.md`.

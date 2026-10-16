@@ -74,7 +74,7 @@ assert period_cases[0]['expected']['net']==19300000
 assert period_cases[1]['expected']['net']==17860000
 Path('public/payroll-period-cases.json').write_text(json.dumps(period_cases,indent=2)+'\n')
 w=Workbook();readme=w.active;readme.title='Read me'
-notes=[['Nigeria 2026 payroll calculation review'],['Status','Engineering reference cases — NOT accountant-approved'],['Scope','Recurring monthly earnings plus reviewed period adjustments; Nigeria 2026 only.'],['Instructions','Change blue inputs on Calculation. Review assumptions and evidence. Reconcile every case with your accountant.'],['Rounding','Positive half-up to two decimal naira places (integer kobo). Monthly PAYE rounds the unrounded annual band tax divided by 12.'],['Pension','8% employee / 10% employer on basic + housing + transport; confirm contractual pensionable emoluments and applicability.'],['NHF','Opt-in/applicability per employee. Default 2.5% basic. Official guidance differs on basis; confirm before approving.'],['PAYE reliefs','Pension, NHF, NHIS, declared rent relief (20%, capped 500,000), and approved other eligible annual reliefs.'],['Minimum wage','Monthly gross at or below 70,000 treated as PAYE-exempt; confirm the employee’s legal eligibility.'],['Employer levies','ECS default 1% gross. ITF is disabled until applicability is confirmed; normally 1% annual payroll for eligible employers.'],['Period adjustments','Calendar-day starters, bonuses and one-off deductions. Period review sheet uses supplied reviewed PAYE, not a cumulative tax estimate. NHIS and recurring after-tax deductions are not prorated.'],['Not supported','Automatic cumulative/YTD PAYE, arrears, leaver calculations, unpaid absence, foreign currency or nonresident cases.'],['Sources','See Sources sheet. Tax legislation and accountant signoff control over this workbook.'],['Independent expected values','Reference sheet uses Python Decimal with cumulative thresholds; Calculation uses editable Excel marginal-band formulas.'],['Signoff','Accountant: __________________ Date: __________ Findings: __________________'],['Launch target','Company signup → first approved payroll <=24 hours. This is measured in app analytics; it is not a guarantee.']]
+notes=[['Nigeria 2026 payroll calculation review'],['Status','Engineering reference cases — NOT accountant-approved'],['Scope','Recurring monthly earnings plus reviewed period adjustments; Nigeria 2026 only.'],['Instructions','Change blue inputs on Calculation. Review assumptions and evidence. Reconcile every case with your accountant.'],['Rounding','Positive half-up to two decimal naira places (integer kobo). Monthly PAYE rounds the unrounded annual band tax divided by 12.'],['Pension','8% employee / 10% employer on basic + housing + transport; confirm contractual pensionable emoluments and applicability.'],['NHF','Opt-in/applicability per employee. Default 2.5% basic. Official guidance differs on basis; confirm before approving.'],['PAYE reliefs','Pension, NHF, NHIS, declared rent relief (20%, capped 500,000), and approved other eligible annual reliefs.'],['Minimum wage','Monthly gross at or below 70,000 treated as PAYE-exempt; confirm the employee’s legal eligibility.'],['Employer levies','ECS default 1% gross. ITF is disabled until applicability is confirmed; normally 1% annual payroll for eligible employers.'],['Period adjustments','Calendar-day starters, bonuses and one-off deductions. Period review sheet uses supplied reviewed PAYE, not a cumulative tax estimate. NHIS and recurring after-tax deductions are not prorated.'],['Not supported','Automatic cumulative/YTD PAYE, arrears, leaver calculations, unpaid absence, foreign currency or nonresident cases.'],['Sources','See Sources sheet. Tax legislation and accountant signoff control over this workbook.'],['Independent expected values','Reference sheet uses Python Decimal with cumulative thresholds; Calculation uses editable Excel marginal-band formulas.'],['YTD reconciliation','Separate sheet verifies opening + released totals and draft exclusion. This does not compute cumulative PAYE liability.'],['Signoff','Accountant: __________________ Date: __________ Findings: __________________'],['Launch target','Company signup → first approved payroll <=24 hours. This is measured in app analytics; it is not a guarantee.']]
 for r in notes:readme.append(r)
 readme.column_dimensions['A'].width=28;readme.column_dimensions['B'].width=112
 for row in readme:
@@ -132,6 +132,27 @@ period_sheet.column_dimensions['A'].width=38
 for col in range(2,26):period_sheet.column_dimensions[__import__('openpyxl').utils.get_column_letter(col)].width=23
 period_sheet.auto_filter.ref=period_sheet.dimensions
 period_sheet.row_dimensions[1].height=45
+# YTD reconciliation uses arithmetic, not a new tax-liability formula.
+ytd=w.create_sheet('YTD reconciliation')
+ytd.append(['Scenario','Opening gross','Opening PAYE','Opening employee pension','Opening other employee deductions','Released gross','Released PAYE','Released employee pension','Released other employee deductions','Draft gross EXCLUDED','YTD gross','YTD PAYE withheld','YTD deductions','YTD net','Expected gross','Expected net','Gross delta','Net delta'])
+ytd_cases=[
+ ('Opening only',1800000,90000,144000,0,0,0,0,0,200000,1800000,1566000),
+ ('October released',1800000,90000,144000,0,200000,17600,16000,0,0,2000000,1732400),
+ ('November draft excluded',1800000,90000,144000,0,200000,17600,16000,0,200000,2000000,1732400),
+ ('October and November released',1800000,90000,144000,0,400000,35200,32000,0,0,2200000,1898800),
+]
+for i,case in enumerate(ytd_cases,2):
+ name,*values=case;ytd.append([name]+values[:9])
+ for col,formula in {'K':f'=B{i}+F{i}','L':f'=C{i}+G{i}','M':f'=SUM(C{i}:E{i})+SUM(G{i}:I{i})','N':f'=K{i}-M{i}','Q':f'=K{i}-O{i}','R':f'=N{i}-P{i}'}.items():ytd[f'{col}{i}']=formula
+ ytd[f'O{i}']=values[9];ytd[f'P{i}']=values[10]
+ for cell in ytd[i][1:]:cell.number_format='#,##0.00'
+ for cell in ytd[i][1:10]:cell.font=Font(color='1565C0');cell.fill=PatternFill('solid',fgColor='EDF5FF')
+ytd.column_dimensions['A'].width=40
+for col in range(2,19):ytd.column_dimensions[__import__('openpyxl').utils.get_column_letter(col)].width=25
+ytd.row_dimensions[1].height=50
+ytd.append([]);ytd.append(['Basis','Opening balances cover January through a reviewed cutoff; only Approved/Paid payroll is included afterwards. Drafts do not affect totals.'])
+ytd.append(['Tax status','PAYE is withheld, not confirmed remittance. This sheet does not calculate cumulative tax liability or verify external accountant identity.'])
+ytd.append(['Evidence','Opening references and change history are company-admin only. Released payroll review records include a calculation SHA-256 fingerprint.'])
 for sheet in w:
  sheet.freeze_panes='A2'
  for cell in sheet[1]:cell.fill=PatternFill('solid',fgColor='245B45');cell.font=Font(color='FFFFFF',bold=True);cell.alignment=Alignment(wrap_text=True)
