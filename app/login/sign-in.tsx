@@ -2,6 +2,7 @@
 import { useState } from "react";
 export default function Login({ setup }: { setup: boolean }) {
   const [error, setError] = useState("");
+  const [recovery, setRecovery] = useState(false);
   const [busy, setBusy] = useState(false);
   return (
     <div className="login-screen">
@@ -75,6 +76,10 @@ export default function Login({ setup }: { setup: boolean }) {
             {busy ? "Please wait…" : setup ? "Create workspace" : "Sign in"}
           </button>
         </form>
+        {!setup && <>
+          <button className="text-button" type="button" onClick={() => setRecovery(!recovery)}>Forgot password?</button>
+          {recovery && <p role="status">Contact your workspace administrator. After verifying your identity, they can create a one-use recovery link under Employees → Recovery link. If you are the only administrator, contact the workspace operator for help.</p>}
+        </>}
         <p className="login-note">
           {setup
             ? "Keep this preview private while setting up. Initial setup closes after your account is created."

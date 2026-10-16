@@ -36,5 +36,21 @@ INSERT INTO login_attempts VALUES('existing@example.test',2,9999999999999);
         assert before == {table: db.execute(f'SELECT * FROM {table}').fetchall() for table in tables}
         assert db.execute('SELECT COUNT(*) FROM reporting_lines').fetchone()[0] == 0
         assert db.execute('SELECT COUNT(*) FROM reporting_events').fetchone()[0] == 0
+        assert db.execute('SELECT COUNT(*) FROM account_links').fetchone()[0] == 0
+        assert db.execute('SELECT COUNT(*) FROM password_attempts').fetchone()[0] == 0
+        assert db.execute('SELECT COUNT(*) FROM security_events').fetchone()[0] == 0
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
+    # Existing reporting lines and their audit records also survive future starts.
+    with sqlite3.connect(database) as db:
+        db.execute("INSERT INTO employees VALUES(42,'Existing manager','manager@example.test','Lead',7,'2025-01-01','Active')")
+        db.execute("INSERT INTO accounts VALUES(24,42,'manager@example.test','manager-hash','manager')")
+        db.execute('INSERT INTO reporting_lines VALUES(41,24)')
+        db.execute("INSERT INTO reporting_events(employee_id,manager_id,actor_id) VALUES(41,24,23)")
+        tables = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        assigned = {table: db.execute(f'SELECT * FROM {table}').fetchall() for table in tables}
+    subprocess.run(['node', '--experimental-strip-types', '--input-type=module', '-e',
+                    f'import {str((Path.cwd()/"lib/db.ts").as_uri())!r}'],
+                   env={**os.environ, 'HRIS_DATA_DIR': directory}, check=True, capture_output=True)
+    with sqlite3.connect(database) as db:
+        assert assigned == {table: db.execute(f'SELECT * FROM {table}').fetchall() for table in tables}
 print('PASS: migration is repeatable; existing accounts, hashes, sessions, employees, requests, reasons and history are unchanged.')

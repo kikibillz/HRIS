@@ -1,4 +1,5 @@
 "use client";
+import PasswordSettings from "./password-settings";
 import { useState } from "react";
 import { workdays, validDate } from "@/lib/leave-policy";
 import type { User } from "@/lib/auth";
@@ -27,6 +28,7 @@ type Employee = {
   department_id: number;
   manager_id?: number | null;
   manager_name?: string | null;
+  account_access?: string | null;
   joined: string;
   status: string;
 };
@@ -88,6 +90,10 @@ export default function Workspace({
   const profile = data.employees.find((e) => e.id === data.user.employee_id);
   const isAdmin = data.user.access === "admin";
   const canReview = data.user.access !== "employee";
+  const [accountEmployeeId, setAccountEmployeeId] = useState<number | null>(null);
+  const accountEmployee = data.employees.find((employee) => employee.id === accountEmployeeId);
+  const [accountSetup, setAccountSetup] = useState("password");
+  const [generatedLink, setGeneratedLink] = useState<{ url: string; expires: number; purpose: string } | null>(null);
   const [assignment, setAssignment] = useState<Employee | null>(null);
   const [decision, setDecision] = useState<{
     id: number;
@@ -116,7 +122,10 @@ export default function Workspace({
       });
       const result = await res.json();
       if (!res.ok) throw Error(result.error);
-      setModal("");
+      if (result.path) {
+        setGeneratedLink({ url: window.location.origin + result.path, expires: result.expires, purpose: result.purpose });
+        setModal("link");
+      } else setModal("");
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
@@ -127,6 +136,8 @@ export default function Workspace({
   function open(kind: string) {
     setError("");
     setDates({ start: "", end: "" });
+    setGeneratedLink(null);
+    setAccountSetup("password");
     setModal(kind);
   }
   function review(id: number, status: string) {
@@ -181,7 +192,7 @@ export default function Workspace({
               <th>Job title</th>
               <th>Department</th>
               <th>Status</th>
-              {isAdmin && <th>Leave approver</th>}
+              {isAdmin && <><th>Leave approver</th><th>Account access</th></>}
             </tr>
           </thead>
           <tbody>
@@ -213,6 +224,13 @@ export default function Workspace({
                   <button className="text-button" aria-label={"Assign manager for " + e.name}
                     onClick={() => { setAssignment(e); open("assignment"); }}>
                     Change approver
+                  </button>
+                </td>}
+                {isAdmin && <td>
+                  <small>{e.account_access || "No account yet"}</small>
+                  <button className="text-button" aria-label={"Account access for " + e.name}
+                    onClick={() => { setAccountEmployeeId(e.id); open("account"); router.refresh(); }}>
+                    {e.account_access ? "Recovery link" : "Invite employee"}
                   </button>
                 </td>}
               </tr>
@@ -247,11 +265,13 @@ export default function Workspace({
         <nav>
           {(isEmployee ? [
             { name: "My profile", icon: Users },
+            { name: "Account security", icon: Users },
             { name: "Leave requests", icon: CalendarDays },
           ] : [
             { name: "Overview", icon: LayoutDashboard },
             { name: "Employees", icon: Users },
             { name: "Departments", icon: Building2 },
+            { name: "Account security", icon: Users },
             { name: "Leave requests", icon: CalendarDays },
           ]).map(({ name, icon: Icon }) => (
             <button
@@ -365,6 +385,7 @@ export default function Workspace({
               {error}
             </p>
           )}
+          {tab === "Account security" && <PasswordSettings />}
           {tab === "My profile" && profile && (
             <section className="panel">
               <div className="section-head"><h2>My profile</h2></div>
@@ -729,7 +750,7 @@ export default function Workspace({
           >
             <div className="section-head">
               <h2 id="modal-title">
-                {modal === "assignment" ? "Assign leave approver" : modal === "decision"
+                {modal === "link" ? "Share account link" : modal === "account" ? "Manage account access" : modal === "assignment" ? "Assign leave approver" : modal === "decision"
                   ? decision?.status === "Cancelled"
                     ? "Cancel request"
                     : decision?.status === "Approved"
@@ -754,7 +775,10 @@ export default function Workspace({
               onSubmit={(e) => {
                 e.preventDefault();
                 const b = Object.fromEntries(new FormData(e.currentTarget));
-                if (modal === "assignment" && assignment)
+                if (modal === "account" && accountEmployee)
+                  mutate("account-links", { employee_id: accountEmployee.id, ...(accountEmployee.account_access ? {} : { access: b.access }) });
+                else if (modal === "link") setModal("");
+                else if (modal === "assignment" && assignment)
                   mutate("employees", { employee_id: assignment.id, manager_id: b.manager_id ? Number(b.manager_id) : null }, "PATCH");
                 else if (modal === "decision")
                   mutate("leaves", { ...decision, note: b.note }, "PATCH");
@@ -782,7 +806,28 @@ export default function Workspace({
                   <p>{selectedLeave.reason}</p>
                 </div>
               )}
-              {modal === "assignment" && assignment ? (
+              {modal === "link" && generatedLink ? (
+                <>
+                  <p>{generatedLink.purpose === "invite" ? "Invitation" : "Recovery"} link created. Share it privately with the intended employee after verifying their identity. Anyone with this link can set their password.</p>
+                  <label>Secure account link<textarea readOnly value={generatedLink.url} onFocus={(event) => event.currentTarget.select()} /></label>
+                  <p>Expires {new Date(generatedLink.expires).toLocaleString("en-GB", { timeZone: "Africa/Lagos" })} WAT. Works once. This link is shown only here.</p>
+                  <button className="secondary" type="button" onClick={async () => {
+                    try { await navigator.clipboard.writeText(generatedLink.url); }
+                    catch { setError("Select the link above and copy it manually."); }
+                  }}>Copy link</button>
+                  <p className="policy-note">No email has been sent. A new link replaces earlier links. You can revoke outstanding links from the employee’s account access controls.</p>
+                </>
+              ) : modal === "account" && accountEmployee ? (
+                <>
+                  <p>Account access for <strong>{accountEmployee.name}</strong> · {accountEmployee.email}</p>
+                  {accountEmployee.account_access ? <p>Create a one-use recovery link. The current password keeps working until the link is used. Verify the employee’s identity before sharing it.</p> : <>
+                    <label htmlFor="invite-access">Workspace access</label>
+                    <select id="invite-access" name="access"><option value="employee">Employee</option><option value="manager">Manager</option></select>
+                    <p>The employee will choose their own password using a one-use invitation link.</p>
+                  </>}
+                  <button type="button" className="secondary" disabled={busy} onClick={() => mutate("account-links", { employee_id: accountEmployee.id }, "DELETE")}>Revoke outstanding links</button>
+                </>
+              ) : modal === "assignment" && assignment ? (
                 <>
                   <p>Choose the leave approver for <strong>{assignment.name}</strong>.</p>
                   <label htmlFor="assigned-manager">Assigned manager</label>
@@ -856,7 +901,12 @@ export default function Workspace({
                       </option>
                     </select>
                   </label>
-                  <label>
+                  <label htmlFor="account-setup">Account setup</label>
+                  <select id="account-setup" name="setup" value={accountSetup} onChange={(event) => setAccountSetup(event.target.value)}>
+                    <option value="password">Set initial password</option>
+                    <option value="invite">Create invitation link</option>
+                  </select>
+                  {accountSetup === "password" ? <label>
                     Initial password
                     <input
                       name="password"
@@ -869,7 +919,7 @@ export default function Workspace({
                     <small>
                       At least 12 characters. Share privately with the employee.
                     </small>
-                  </label>
+                  </label> : <p>The employee will set their own password. Share the invitation link privately; no email is sent.</p>}
                 </>
               ) : modal === "department" ? (
                 <label>
@@ -983,7 +1033,7 @@ export default function Workspace({
                 <button className="primary" disabled={busy}>
                   {busy
                     ? "Saving…"
-                    : modal === "assignment" ? "Save approver" : modal === "decision"
+                    : modal === "link" ? "Done" : modal === "account" ? (accountEmployee?.account_access ? "Create recovery link" : "Create invitation link") : modal === "assignment" ? "Save approver" : modal === "decision"
                       ? "Confirm " + decision?.status.toLowerCase()
                       : modal === "leave"
                         ? "Submit request"

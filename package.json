@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
     "typecheck": "tsc --noEmit",
-    "test": "python3 tests/migration.py && python3 tests/smoke.py",
+    "test": "python3 tests/migration.py && python3 tests/smoke.py && python3 tests/accounts.py",
     "preview": "bash scripts/start-preview.sh"
   },
   "dependencies": {

@@ -52,7 +52,7 @@ export function snapshot() {
   return {
     employees: db
       .prepare(
-        "SELECT e.*, d.name AS department, r.manager_id, m.name AS manager_name FROM employees e JOIN departments d ON d.id=e.department_id LEFT JOIN reporting_lines r ON r.employee_id=e.id LEFT JOIN accounts a ON a.id=r.manager_id LEFT JOIN employees m ON m.id=a.employee_id ORDER BY e.id DESC",
+        "SELECT e.*, d.name AS department, r.manager_id, m.name AS manager_name, own.access AS account_access FROM employees e JOIN departments d ON d.id=e.department_id LEFT JOIN reporting_lines r ON r.employee_id=e.id LEFT JOIN accounts a ON a.id=r.manager_id LEFT JOIN employees m ON m.id=a.employee_id LEFT JOIN accounts own ON own.employee_id=e.id ORDER BY e.id DESC",
       )
       .all(),
     departments: db
@@ -96,5 +96,23 @@ CREATE INDEX IF NOT EXISTS reporting_manager ON reporting_lines(manager_id);
 CREATE TABLE IF NOT EXISTS reporting_events (
  id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id),
  manager_id INTEGER REFERENCES accounts(id), actor_id INTEGER NOT NULL REFERENCES accounts(id),
+ created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);`);
+
+// Account lifecycle additions never replace existing accounts or password hashes.
+db.exec(`
+CREATE TABLE IF NOT EXISTS account_links (
+ token_hash TEXT PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id),
+ account_id INTEGER REFERENCES accounts(id), purpose TEXT NOT NULL CHECK(purpose IN ('invite','reset')),
+ access TEXT NOT NULL CHECK(access IN ('admin','manager','employee')),
+ expires INTEGER NOT NULL, used_at INTEGER, created_by INTEGER NOT NULL REFERENCES accounts(id)
+);
+CREATE INDEX IF NOT EXISTS account_links_employee ON account_links(employee_id);
+CREATE TABLE IF NOT EXISTS password_attempts (
+ account_id INTEGER PRIMARY KEY REFERENCES accounts(id), attempts INTEGER NOT NULL, reset_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS security_events (
+ id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id),
+ actor_id INTEGER REFERENCES accounts(id), action TEXT NOT NULL,
  created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );`);

@@ -1,4 +1,5 @@
 import { requireUser, hashPassword, validPassword } from "@/lib/auth";
+import { issueAccountLink } from "@/lib/account-links";
 import { db } from "@/lib/db";
 export const runtime = "nodejs";
 export async function POST(request: Request) {
@@ -28,8 +29,9 @@ export async function POST(request: Request) {
         { error: "Department does not exist." },
         { status: 400 },
       );
+    const invite = b.setup === "invite";
     if (
-      !validPassword(b.password) ||
+      (!invite && !validPassword(b.password)) ||
       !["employee", "manager"].includes(b.access)
     )
       return Response.json(
@@ -39,7 +41,8 @@ export async function POST(request: Request) {
         },
         { status: 400 },
       );
-    const hash = hashPassword(b.password);
+    const hash = invite ? null : hashPassword(b.password);
+    let link = {};
     db.exec("BEGIN IMMEDIATE");
     try {
       const result = db
@@ -53,7 +56,8 @@ export async function POST(request: Request) {
           Number(b.department_id),
           new Date().toISOString().slice(0, 10),
         );
-      db.prepare(
+      if (invite) link = issueAccountLink(Number(result.lastInsertRowid), user.id, b.access);
+      else db.prepare(
         "INSERT INTO accounts(employee_id,email,password_hash,access) VALUES (?,?,?,?)",
       ).run(
         result.lastInsertRowid,
@@ -66,7 +70,7 @@ export async function POST(request: Request) {
       db.exec("ROLLBACK");
       throw e;
     }
-    return Response.json({ ok: true }, { status: 201 });
+    return Response.json({ ok: true, ...link }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     return Response.json(
       {

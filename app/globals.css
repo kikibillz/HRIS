@@ -1192,3 +1192,9 @@ footer > span:last-child {
 .profile-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 24px; padding: 24px; margin: 0; }
 .profile-details dt { color: #667085; font-size: 13px; margin-bottom: 6px; }
 .profile-details dd { margin: 0; overflow-wrap: anywhere; }
+
+.account-panel { padding: 24px; max-width: 700px; }
+.account-panel form, .login-card form { display: grid; gap: 16px; }
+.account-panel label { display: grid; gap: 8px; font-size: 14px; }
+.account-panel input { width: 100%; border: 1px solid #d0d5dd; border-radius: 8px; padding: 10px 12px; font: inherit; }
+.account-panel > p { color: #667085; margin-bottom: 20px; }

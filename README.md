@@ -8,7 +8,7 @@ A working HR prototype built with free, open-source tools: Next.js, React, TypeS
 2. Wait for setup to install dependencies and start the development server.
 3. In the **Ports** panel, open port **3000** in your browser. Keep its visibility **Private**.
 4. Create your first administrator account on the setup screen, using a unique password of at least 12 characters. Setup closes after that account exists.
-5. Choose **Employees → Add employee** to create employee and manager accounts with passwords you choose. Share passwords privately; do not use real staff data yet.
+5. Choose **Employees → Add employee** to create employee and manager accounts with passwords you choose. Choose **Create invitation link** under **Account setup** to let the employee choose their own password. Share the link privately; email delivery is not configured. Initial-password setup remains available. Do not use real staff data yet.
 6. Open **Leave requests**. Submit a request as an employee, then sign in as an assigned manager or administrator to review it. Administrators choose approvers with **Employees → Change approver**. Expand a request in **Request history** to see its reason, decisions, reviewer, and timestamps.
 
 GitHub Codespaces has account-dependent free quotas. Check your remaining quota and spending settings, and stop the Codespace when finished. This configuration uses the standard default machine size and requires no paid extensions. A Codespace cannot be promised to be free for every account.
@@ -62,8 +62,25 @@ Optional real-browser tests require Python Playwright (`pip install playwright`)
 
 ## What comes next
 
-This is a functioning development prototype, not a production HR service. Before real staff records or public rollout, implement password changes and recovery, invitations, custom leave policies, account deactivation, backups, stronger abuse controls, privacy controls, and a security review. Payroll, attendance, recruiting, document storage, and integrations are future modules.
+This is a functioning development prototype, not a production HR service. Before real staff records or public rollout, implement custom leave policies, account deactivation, backups, stronger abuse controls, privacy controls, and a security review. Payroll, attendance, recruiting, document storage, and integrations are future modules.
 
 The app is single-workspace. Managers review only directly assigned employees; indirect reporting chains do not grant leave access. Existing accounts and requests are preserved, and reporting lines start unassigned. Sample people use fictional `.demo` email addresses and have no seeded login passwords. Only accounts you explicitly create can sign in.
 
-API: POST/DELETE `/api/auth`, POST/PATCH `/api/employees`, POST `/api/departments`, POST/PATCH `/api/leaves`. All workforce mutations require authentication and enforce roles server-side.
+## Passwords, invitations, and recovery
+
+- All signed-in users can use **Account security** to change their own password by confirming their current password. Five incorrect current-password attempts trigger a 15-minute pause. Successful changes sign out every session and invalidate outstanding account links.
+- Administrators can invite a new employee using **Add employee → Account setup → Create invitation link**, or invite an existing person without an account using **Employees → Invite employee**. The account is created only when the employee sets a password. Invitations expire after 48 hours. Invitation roles are limited to employee or manager.
+- For existing accounts, **Employees → Recovery link** creates a one-use reset link that expires after one hour. Verify the employee’s identity before sharing. Issuing a link leaves their current password and sessions working; redeeming it changes the password, signs out all their sessions, and preserves their role, reporting relationships, leave data, and account identity.
+- Links appear once in the dialog, can be copied, and must be shared privately. No email is sent. Reissuing a link invalidates earlier links. **Revoke outstanding links** cancels unused links without changing the password. Treat these links as credentials.
+- Link tokens are stored only as SHA-256 hashes. Tokens travel in the URL fragment, are removed from browser history when opened, and are consumed atomically when the password is saved. Refreshing the password page requires reopening the original link. Account-link and password actions are audited without storing plaintext passwords or tokens.
+- **Forgot password?** on sign-in explains the administrator-assisted process. If the only administrator is locked out, a trusted workspace operator with access to the existing database can run this from the HRIS terminal (use the real administrator email and exact app origin):
+
+```sh
+node scripts/recover-admin.mjs admin@example.com https://your-workspace-origin
+```
+
+The operator command issues a one-hour reset link, records the action, and preserves the current password until redemption. `HRIS_DATA_DIR` can select the existing database directory. Run the updated app once before using the command so the additive account-link tables exist. This is a manual operator procedure, not a public recovery endpoint. Never delete the database to recover an account.
+
+`npm test` also runs isolated account lifecycle tests on port 3103. Optional account browser checks: `python3 tests/accounts-browser.py` (port 3104). Both use temporary databases.
+
+API: POST/DELETE `/api/auth`, POST/PATCH `/api/employees`, POST `/api/departments`, POST/PATCH `/api/leaves`, POST `/api/password`, POST/DELETE `/api/account-links`, POST `/api/account-links/redeem`. All workforce mutations require authentication and enforce roles server-side.
