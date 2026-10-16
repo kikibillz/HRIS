@@ -117,25 +117,6 @@ export async function PATCH(request: Request) {
     const b = await request.json();
     if (!["Approved", "Declined", "Cancelled"].includes(b.status))
       return Response.json({ error: "Invalid decision." }, { status: 400 });
-    const leave = db
-      .prepare("SELECT employee_id,status FROM leaves WHERE id=?")
-      .get(Number(b.id)) as { employee_id: number; status: string } | undefined;
-    if (!leave)
-      return Response.json({ error: "Request not found." }, { status: 404 });
-    if (
-      b.status === "Cancelled"
-        ? leave.employee_id !== user.employee_id
-        : user.access === "employee" || leave.employee_id === user.employee_id
-    )
-      return Response.json(
-        {
-          error:
-            b.status === "Cancelled"
-              ? "Only the requester may cancel."
-              : "Managers may review other employees’ requests, never their own.",
-        },
-        { status: 403 },
-      );
     if (
       typeof b.note !== "string" ||
       b.note.length > 1000 ||
@@ -147,6 +128,32 @@ export async function PATCH(request: Request) {
       );
     db.exec("BEGIN IMMEDIATE");
     try {
+      const leave = db
+        .prepare("SELECT employee_id,status FROM leaves WHERE id=?")
+        .get(Number(b.id)) as { employee_id: number; status: string } | undefined;
+      if (!leave) {
+        db.exec("ROLLBACK");
+        return Response.json({ error: "Request not found." }, { status: 404 });
+      }
+      if (
+        b.status === "Cancelled"
+          ? leave.employee_id !== user.employee_id
+          : user.access === "employee" || leave.employee_id === user.employee_id ||
+            (user.access === "manager" && !db.prepare(
+              "SELECT 1 FROM reporting_lines WHERE employee_id=? AND manager_id=?",
+            ).get(leave.employee_id, user.id))
+      ) {
+        db.exec("ROLLBACK");
+        return Response.json(
+          {
+            error:
+              b.status === "Cancelled"
+                ? "Only the requester may cancel."
+                : "Only assigned managers or administrators may review another employee’s request.",
+          },
+          { status: 403 },
+        );
+      }
       const result = db
         .prepare("UPDATE leaves SET status=? WHERE id=? AND status='Pending'")
         .run(b.status, Number(b.id));

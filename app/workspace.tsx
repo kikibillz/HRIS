@@ -25,6 +25,8 @@ type Employee = {
   role: string;
   department: string;
   department_id: number;
+  manager_id?: number | null;
+  manager_name?: string | null;
   joined: string;
   status: string;
 };
@@ -72,6 +74,7 @@ export default function Workspace({
     user: User;
     balances: Balance[];
     events: Event[];
+    managers: { id: number; employee_id: number; name: string }[];
   };
 }) {
   const router = useRouter();
@@ -85,6 +88,7 @@ export default function Workspace({
   const profile = data.employees.find((e) => e.id === data.user.employee_id);
   const isAdmin = data.user.access === "admin";
   const canReview = data.user.access !== "employee";
+  const [assignment, setAssignment] = useState<Employee | null>(null);
   const [decision, setDecision] = useState<{
     id: number;
     status: string;
@@ -177,6 +181,7 @@ export default function Workspace({
               <th>Job title</th>
               <th>Department</th>
               <th>Status</th>
+              {isAdmin && <th>Leave approver</th>}
             </tr>
           </thead>
           <tbody>
@@ -203,6 +208,13 @@ export default function Workspace({
                     {e.status}
                   </span>
                 </td>
+                {isAdmin && <td>
+                  <small>{e.manager_name || "Administrator review"}</small>
+                  <button className="text-button" aria-label={"Assign manager for " + e.name}
+                    onClick={() => { setAssignment(e); open("assignment"); }}>
+                    Change approver
+                  </button>
+                </td>}
               </tr>
             ))}
           </tbody>
@@ -361,6 +373,7 @@ export default function Workspace({
                   Name: profile.name, Email: profile.email,
                   "Job title": profile.role, Department: profile.department,
                   "Joined on": profile.joined, Status: profile.status,
+                  "Leave approver": profile.manager_name || "Administrator review",
                 }).map(([label, value]) => (
                   <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
                 ))}
@@ -554,6 +567,9 @@ export default function Workspace({
           )}
           {tab === "Leave requests" && (
             <>
+              {data.user.access === "manager" && <p className="policy-note">
+                You can review leave for employees assigned to you. Your own requests need another approver.
+              </p>}
               <section className="panel balance-panel">
                 <div className="section-head">
                   <h2>My leave balance</h2>
@@ -713,7 +729,7 @@ export default function Workspace({
           >
             <div className="section-head">
               <h2 id="modal-title">
-                {modal === "decision"
+                {modal === "assignment" ? "Assign leave approver" : modal === "decision"
                   ? decision?.status === "Cancelled"
                     ? "Cancel request"
                     : decision?.status === "Approved"
@@ -738,7 +754,9 @@ export default function Workspace({
               onSubmit={(e) => {
                 e.preventDefault();
                 const b = Object.fromEntries(new FormData(e.currentTarget));
-                if (modal === "decision")
+                if (modal === "assignment" && assignment)
+                  mutate("employees", { employee_id: assignment.id, manager_id: b.manager_id ? Number(b.manager_id) : null }, "PATCH");
+                else if (modal === "decision")
                   mutate("leaves", { ...decision, note: b.note }, "PATCH");
                 else
                   mutate(
@@ -764,7 +782,19 @@ export default function Workspace({
                   <p>{selectedLeave.reason}</p>
                 </div>
               )}
-              {modal === "decision" ? (
+              {modal === "assignment" && assignment ? (
+                <>
+                  <p>Choose the leave approver for <strong>{assignment.name}</strong>.</p>
+                  <label htmlFor="assigned-manager">Assigned manager</label>
+                    <select id="assigned-manager" name="manager_id" defaultValue={assignment.manager_id || ""}>
+                      <option value="">Administrator review only</option>
+                      {data.managers.filter((m) => m.employee_id !== assignment.id).map((m) => (
+                        <option key={m.id} value={m.id}>{m.name}</option>
+                      ))}
+                    </select>
+                  <p className="policy-note">Changes apply to all this employee’s requests, including pending requests and history. Administrators retain access.</p>
+                </>
+              ) : modal === "decision" ? (
                 <label>
                   {decision?.status === "Declined"
                     ? "Why are you declining?"
@@ -822,7 +852,7 @@ export default function Workspace({
                         Employee — request own leave
                       </option>
                       <option value="manager">
-                        Manager — review other employees’ leave
+                        Manager — review assigned employees’ leave
                       </option>
                     </select>
                   </label>
@@ -953,7 +983,7 @@ export default function Workspace({
                 <button className="primary" disabled={busy}>
                   {busy
                     ? "Saving…"
-                    : modal === "decision"
+                    : modal === "assignment" ? "Save approver" : modal === "decision"
                       ? "Confirm " + decision?.status.toLowerCase()
                       : modal === "leave"
                         ? "Submit request"

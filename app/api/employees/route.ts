@@ -78,3 +78,38 @@ export async function POST(request: Request) {
     );
   }
 }
+
+// Reporting lines are administrator-managed; changes apply to existing requests too.
+export async function PATCH(request: Request) {
+  const user = await requireUser(request, true);
+  if (user instanceof Response) return user;
+  try {
+    const body = await request.json();
+    if (!Number.isSafeInteger(body.employee_id) || body.employee_id < 1 ||
+        (body.manager_id !== null && (!Number.isSafeInteger(body.manager_id) || body.manager_id < 1)))
+      return Response.json({ error: "Choose an employee and a valid manager, or administrator review." }, { status: 400 });
+    if (!db.prepare("SELECT id FROM employees WHERE id=?").get(body.employee_id))
+      return Response.json({ error: "Employee not found." }, { status: 404 });
+    if (body.manager_id !== null && !db.prepare(
+      "SELECT id FROM accounts WHERE id=? AND access='manager' AND employee_id<>?",
+    ).get(body.manager_id, body.employee_id))
+      return Response.json({ error: "Choose a manager account other than the employee’s own account." }, { status: 400 });
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      if (body.manager_id === null)
+        db.prepare("DELETE FROM reporting_lines WHERE employee_id=?").run(body.employee_id);
+      else
+        db.prepare("INSERT INTO reporting_lines(employee_id,manager_id) VALUES (?,?) ON CONFLICT(employee_id) DO UPDATE SET manager_id=excluded.manager_id")
+          .run(body.employee_id, body.manager_id);
+      db.prepare("INSERT INTO reporting_events(employee_id,manager_id,actor_id) VALUES (?,?,?)")
+        .run(body.employee_id, body.manager_id, user.id);
+      db.exec("COMMIT");
+      return Response.json({ ok: true });
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  } catch {
+    return Response.json({ error: "Unable to update the assigned manager." }, { status: 400 });
+  }
+}

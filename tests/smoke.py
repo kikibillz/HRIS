@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix='hris-smoke-') as directory:
     with open(os.path.join(directory,'server.log'),'w+') as log:
         server=subprocess.Popen(['node','node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port','3101'],env={**os.environ,'HRIS_DATA_DIR':directory,'HRIS_ALLOW_SETUP':'1'},stdout=log,stderr=log)
         try:
-            guest,admin,employee,manager=Client(),Client(),Client(),Client()
+            guest,admin,employee,manager,other=Client(),Client(),Client(),Client(),Client()
             for _ in range(60):
                 try:
                     if guest.request('/login')[0]==200:break
@@ -42,12 +42,29 @@ with tempfile.TemporaryDirectory(prefix='hris-smoke-') as directory:
             guest.expect(403,'/api/auth',{'action':'setup','name':'Intruder','email':'bad@example.test','password':password})
             assert 'A good day starts with your people.' in admin.expect(200)
             admin.expect(400,'/api/employees',{'name':'Bad email','email':'invalid'})
-            for name,access in [('Worker','employee'),('Manager','manager')]:
+            for name,access in [('Worker','employee'),('Manager','manager'),('Other','manager')]:
                 body={'name':name,'email':name.lower()+'@example.test','role':'Tester','department_id':1,'access':access,'password':password}
                 admin.expect(201,'/api/employees',body)
             admin.expect(400,'/api/employees',body)
             employee.expect(200,'/api/auth',{'email':'worker@example.test','password':password})
             manager.expect(200,'/api/auth',{'email':'manager@example.test','password':password})
+            other.expect(200,'/api/auth',{'email':'other@example.test','password':password})
+            with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+                worker_id=db.execute("SELECT id FROM employees WHERE email='worker@example.test'").fetchone()[0]
+                manager_id=db.execute("SELECT id FROM accounts WHERE email='manager@example.test'").fetchone()[0]
+                manager_employee_id=db.execute("SELECT employee_id FROM accounts WHERE id=?",(manager_id,)).fetchone()[0]
+                other_id=db.execute("SELECT id FROM accounts WHERE email='other@example.test'").fetchone()[0]
+            assignment={'employee_id':worker_id,'manager_id':manager_id}
+            guest.expect(401,'/api/employees',assignment,'PATCH')
+            employee.expect(403,'/api/employees',assignment,'PATCH')
+            manager.expect(403,'/api/employees',assignment,'PATCH')
+            admin.expect(403,'/api/employees',assignment,'PATCH',origin='https://untrusted.example')
+            for invalid in [0,-1,'3',False,999999]:
+                admin.expect(400,'/api/employees',{**assignment,'manager_id':invalid},'PATCH')
+            admin.expect(400,'/api/employees',{'employee_id':manager_employee_id,'manager_id':manager_id},'PATCH')
+            admin.expect(400,'/api/employees',{**assignment,'manager_id':1},'PATCH')
+            admin.expect(400,'/api/employees',{**assignment,'manager_id':2},'PATCH')
+            admin.expect(404,'/api/employees',{**assignment,'employee_id':999999},'PATCH')
             employee_html=employee.expect(200)
             assert 'My profile' in employee_html and 'worker@example.test' in employee_html
             for private in ['olivia@peopleos.demo','phoenix@peopleos.demo','manager@example.test','Total employees','Employee directory']:
@@ -71,6 +88,12 @@ with tempfile.TemporaryDirectory(prefix='hris-smoke-') as directory:
             employee.expect(409,'/api/leaves',leave())
             employee.expect(409,'/api/leaves',leave(monday+datetime.timedelta(days=28),monday+datetime.timedelta(days=55)))
             employee.expect(403,'/api/leaves',{'id':3,'status':'Approved','note':''},'PATCH')
+            manager.expect(403,'/api/leaves',{'id':3,'status':'Approved','note':''},'PATCH')
+            assert 'Family break' not in manager.expect(200), 'Unassigned manager must not receive employee reasons'
+            admin.expect(200,'/api/employees',assignment,'PATCH')
+            assert 'Family break' in manager.expect(200)
+            assert 'Family break' not in other.expect(200)
+            other.expect(403,'/api/leaves',{'id':3,'status':'Approved','note':''},'PATCH')
             manager.expect(200,'/api/leaves',{'id':3,'status':'Approved','note':'Enjoy your break'},'PATCH')
             manager.expect(409,'/api/leaves',{'id':3,'status':'Declined','note':'Changed mind'},'PATCH')
             employee.expect(403,'/api/leaves',{'id':1,'status':'Declined','note':'Forged'},'PATCH')
@@ -93,8 +116,23 @@ with tempfile.TemporaryDirectory(prefix='hris-smoke-') as directory:
             with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
                 assert db.execute('SELECT status FROM leaves WHERE id=3').fetchone()[0]=='Approved'
                 assert db.execute('SELECT COUNT(*) FROM leave_events WHERE leave_id=3').fetchone()[0]==2
-                assert db.execute('SELECT COUNT(*) FROM employees').fetchone()[0]==11
+                assert db.execute('SELECT COUNT(*) FROM employees').fetchone()[0]==12
                 assert all(password not in row[0] for row in db.execute('SELECT password_hash FROM accounts'))
+            # Reassignment revokes both decisions and serialized history immediately.
+            admin.expect(200,'/api/employees',{**assignment,'manager_id':other_id},'PATCH')
+            assert 'Enjoy your break' not in manager.expect(200)
+            assert 'Enjoy your break' in other.expect(200)
+            manager.expect(403,'/api/leaves',{'id':7,'status':'Approved','note':''},'PATCH')
+            other.expect(200,'/api/leaves',{'id':7,'status':'Approved','note':'New approver'},'PATCH')
+            admin.expect(200,'/api/employees',{**assignment,'manager_id':None},'PATCH')
+            assert 'Enjoy your break' not in other.expect(200)
+            employee.expect(201,'/api/leaves',leave(monday+datetime.timedelta(days=14))) # id 8
+            other.expect(403,'/api/leaves',{'id':8,'status':'Approved','note':''},'PATCH')
+            admin.expect(200,'/api/leaves',{'id':8,'status':'Declined','note':'Administrator fallback'},'PATCH')
+            # Persist an assignment across restart too.
+            admin.expect(200,'/api/employees',assignment,'PATCH')
+            with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+                assert db.execute('SELECT COUNT(*) FROM reporting_events').fetchone()[0]==4
             # Restart the app on the same test database; existing accounts, sessions and history survive.
             server.terminate();server.wait(timeout=10)
             server=subprocess.Popen(['node','node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port','3101'],env={**os.environ,'HRIS_DATA_DIR':directory},stdout=log,stderr=log)
@@ -104,6 +142,8 @@ with tempfile.TemporaryDirectory(prefix='hris-smoke-') as directory:
                 except (OSError,TimeoutError):pass
                 time.sleep(.25)
             assert 'Enjoy your break' in employee.expect(200)
+            assert 'Enjoy your break' in manager.expect(200)
+            assert 'Enjoy your break' not in other.expect(200)
             guest.expect(403,'/api/auth',{'action':'setup','name':'Replacement','email':'replacement@example.test','password':password})
             admin.expect(200,'/api/auth',method='DELETE')
             admin.expect(401,'/api/leaves',leave())

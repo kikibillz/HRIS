@@ -9,7 +9,7 @@ A working HR prototype built with free, open-source tools: Next.js, React, TypeS
 3. In the **Ports** panel, open port **3000** in your browser. Keep its visibility **Private**.
 4. Create your first administrator account on the setup screen, using a unique password of at least 12 characters. Setup closes after that account exists.
 5. Choose **Employees → Add employee** to create employee and manager accounts with passwords you choose. Share passwords privately; do not use real staff data yet.
-6. Open **Leave requests**. Submit a request as an employee, then sign in as a manager or administrator to review it. Expand a request in **Request history** to see its reason, decisions, reviewer, and timestamps.
+6. Open **Leave requests**. Submit a request as an employee, then sign in as an assigned manager or administrator to review it. Administrators choose approvers with **Employees → Change approver**. Expand a request in **Request history** to see its reason, decisions, reviewer, and timestamps.
 
 GitHub Codespaces has account-dependent free quotas. Check your remaining quota and spending settings, and stop the Codespace when finished. This configuration uses the standard default machine size and requires no paid extensions. A Codespace cannot be promised to be free for every account.
 
@@ -45,14 +45,14 @@ npm test
 npm start
 ```
 
-`npm test` requires Python 3. It starts a production server on port 3101 with its own temporary database and checks login, authorization, date validation, balances, overlaps, decisions, cancellation, and audit history. Run a build first. It never uses your working database.
+`npm test` requires Python 3. It first verifies migration from an existing database without changing any original records, then starts a production server on port 3101 with its own temporary database and checks login, authorization, date validation, balances, overlaps, decisions, cancellation, and audit history. Run a build first. It never uses your working database.
 
 Optional real-browser tests require Python Playwright (`pip install playwright`) and system Chromium. Set `CHROMIUM_PATH` if it is not at `/usr/bin/chromium`, then run `python3 tests/browser.py` after a build. They use a separate temporary database and port 3102. Screenshots go to `/tmp/hris-review/`.
 
 ## Leave workflow and current policy
 
 - Employees submit and cancel their own pending requests and see only their own leave reasons and history. Their workspace includes a read-only own profile, balances, requests, cancellation, and history. Other employees, the directory, and department counts are excluded server-side from employee page data. Managers and administrators retain their existing directory and team access.
-- Managers can review other employees' requests across the workspace. Administrators also manage employees and departments and can submit leave on behalf of an employee. Nobody can approve or decline their own request.
+- Managers can see leave reasons/history and review requests only for their directly assigned employees. Administrators assign or remove managers using **Employees → Change approver**. Unassigned employees use administrator review. Reassignment moves access to existing requests and history immediately; manager assignment changes are audited. Administrators also manage employees and departments and can submit leave on behalf of an employee. Nobody can approve or decline their own request.
 - Annual leave: 20 days; sick leave: 10 days; personal leave: 5 days per calendar year. These are **prototype allowances**, not claims about statutory entitlements.
 - Counts use Monday–Friday, excluding weekends. Public holidays, carry-over, prorating, and custom policies are not implemented.
 - Pending requests reserve days; approved requests consume them. Declining or cancelling releases reserved days. Only pending requests can change state.
@@ -62,8 +62,8 @@ Optional real-browser tests require Python Playwright (`pip install playwright`)
 
 ## What comes next
 
-This is a functioning development prototype, not a production HR service. Before real staff records or public rollout, implement password changes and recovery, invitations, assigned manager scopes, custom leave policies, account deactivation, backups, stronger abuse controls, privacy controls, and a security review. Payroll, attendance, recruiting, document storage, and integrations are future modules.
+This is a functioning development prototype, not a production HR service. Before real staff records or public rollout, implement password changes and recovery, invitations, custom leave policies, account deactivation, backups, stronger abuse controls, privacy controls, and a security review. Payroll, attendance, recruiting, document storage, and integrations are future modules.
 
-The app is single-workspace. Managers currently review across that workspace; teams do not yet have assigned approvers. Sample people use fictional `.demo` email addresses and have no seeded login passwords. Only accounts you explicitly create can sign in.
+The app is single-workspace. Managers review only directly assigned employees; indirect reporting chains do not grant leave access. Existing accounts and requests are preserved, and reporting lines start unassigned. Sample people use fictional `.demo` email addresses and have no seeded login passwords. Only accounts you explicitly create can sign in.
 
-API: POST/DELETE `/api/auth`, POST `/api/employees`, POST `/api/departments`, POST/PATCH `/api/leaves`. All workforce mutations require authentication and enforce roles server-side.
+API: POST/DELETE `/api/auth`, POST/PATCH `/api/employees`, POST `/api/departments`, POST/PATCH `/api/leaves`. All workforce mutations require authentication and enforce roles server-side.

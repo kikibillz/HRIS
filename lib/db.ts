@@ -52,7 +52,7 @@ export function snapshot() {
   return {
     employees: db
       .prepare(
-        "SELECT e.*, d.name AS department FROM employees e JOIN departments d ON d.id=e.department_id ORDER BY e.id DESC",
+        "SELECT e.*, d.name AS department, r.manager_id, m.name AS manager_name FROM employees e JOIN departments d ON d.id=e.department_id LEFT JOIN reporting_lines r ON r.employee_id=e.id LEFT JOIN accounts a ON a.id=r.manager_id LEFT JOIN employees m ON m.id=a.employee_id ORDER BY e.id DESC",
       )
       .all(),
     departments: db
@@ -83,5 +83,18 @@ CREATE TABLE IF NOT EXISTS leave_details (leave_id INTEGER PRIMARY KEY REFERENCE
 CREATE TABLE IF NOT EXISTS leave_events (
  id INTEGER PRIMARY KEY, leave_id INTEGER NOT NULL REFERENCES leaves(id),
  actor_id INTEGER NOT NULL REFERENCES accounts(id), action TEXT NOT NULL, note TEXT NOT NULL,
+ created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);`);
+
+// No inferred reporting lines: existing requests remain available to administrators.
+db.exec(`
+CREATE TABLE IF NOT EXISTS reporting_lines (
+ employee_id INTEGER PRIMARY KEY REFERENCES employees(id),
+ manager_id INTEGER NOT NULL REFERENCES accounts(id)
+);
+CREATE INDEX IF NOT EXISTS reporting_manager ON reporting_lines(manager_id);
+CREATE TABLE IF NOT EXISTS reporting_events (
+ id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id),
+ manager_id INTEGER REFERENCES accounts(id), actor_id INTEGER NOT NULL REFERENCES accounts(id),
  created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );`);
