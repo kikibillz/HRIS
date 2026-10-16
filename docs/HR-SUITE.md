@@ -115,6 +115,12 @@ The selected export target is a **configurable generic bank schedule**. These fo
 - **Generate immutable export pack** validates readiness again inside a database transaction and stores the files, column mapping, employer references, reviewed identifiers and reconciliation balances. ZIP downloads include a manifest with SHA-256 checksums. Existing packs remain byte-identical after later receipts, voids, profile edits or settings changes. Generation is audited and downloads enforce company-admin access. No existing pack can be overwritten through the API.
 - Pack history is stored with SQLite. It contains sensitive payroll and bank data, so preserve and protect the database backups alongside the original accounts and documents. An export is a point-in-time preparation snapshot; it does not prove payment, filing acceptance or legal payroll accuracy.
 
+## Backups and recovery controls
+
+Company admins can download encrypted company-only logical archives and compare their contents in **Backups & recovery**. Authentication credentials/tokens and other companies are excluded. A recovery UUID prevents archives from a different installation matching solely by numeric company ID. The web interface never applies archive records.
+
+The trusted operator CLI provides consistent, encrypted SQLite backups including all companies and account password hashes, integrity/FK checks and table-content comparison. Recovery writes a new data directory, revokes recovered sessions and unused account links in that copy, and preserves accounts/passwords/documents/payroll/history. It never automatically replaces or switches a live database. See [the backup and recovery procedure](BACKUP-RECOVERY.md) for commands, scope, limits, offsite storage and cutover instructions. There is no automatic scheduling or retention job in this release.
+
 ## External configuration and present boundaries
 
 - No salary payout provider, live transfer credentials, or remittance integration is connected. The selected approach is bank-file export plus manual salary/remittance receipt reconciliation.

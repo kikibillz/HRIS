@@ -4,11 +4,17 @@ import { modules } from "@/lib/modules";
 import { api, type Context } from "./types";
 import RecordsPanel from "./records-panel";
 import PayrollPanel from "./payroll-panel";
+import BackupsPanel from "./backups-panel";
 import ToolsPanel from "./tools-panel";
 const extras: Record<
   string,
   { title: string; description: string; admin?: boolean }
 > = {
+  backups: {
+    title: "Backups & recovery",
+    description: "Protect company records and inspect recovery archives.",
+    admin: true,
+  },
   people: {
     title: "Employee records",
     description:
@@ -115,6 +121,7 @@ export default function Operations() {
     "notifications",
     "analytics",
     "audit",
+    "backups",
   ];
   const allowed = !meta.admin || admin;
   return (
@@ -173,6 +180,8 @@ export default function Operations() {
             <p role="alert">Administrator access required.</p>
           ) : modules[tab] ? (
             <RecordsPanel key={tab} kind={tab} context={context} />
+          ) : tab === "backups" ? (
+            <BackupsPanel />
           ) : tab === "payroll" ? (
             <PayrollPanel context={context} />
           ) : (
