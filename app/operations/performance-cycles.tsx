@@ -35,6 +35,9 @@ type Cycle = {
     overdue: number;
     last_reminded: string | null;
     acknowledged_at: string | null;
+    last_acknowledgment_reminder: string | null;
+    acknowledgment_reminder_count: number;
+    can_remind_acknowledgment: number;
   }[];
 };
 export default function PerformanceCycles({
@@ -74,13 +77,15 @@ export default function PerformanceCycles({
     try {
       const result = await api("performance", body);
       setMessage(
-        result.reassigned
-          ? "Reviewer reassigned. Existing response and status preserved."
-          : result.sent !== undefined
-            ? `${result.sent} reminders sent; ${result.skipped} already reminded today.`
-            : result.assigned === undefined
-              ? "Cycle saved."
-              : `${result.assigned} reviews assigned; ${result.skipped} already assigned employees skipped.`,
+        result.acknowledgment_reminders
+          ? `${result.sent} acknowledgment reminders sent; ${result.skipped} already reminded today; ${result.unavailable} employees unavailable.`
+          : result.reassigned
+            ? "Reviewer reassigned. Existing response and status preserved."
+            : result.sent !== undefined
+              ? `${result.sent} reminders sent; ${result.skipped} already reminded today.`
+              : result.assigned === undefined
+                ? "Cycle saved."
+                : `${result.assigned} reviews assigned; ${result.skipped} already assigned employees skipped.`,
       );
       await load();
       await onAssigned();
@@ -161,6 +166,19 @@ export default function PerformanceCycles({
             {cycle.acknowledged} acknowledged · {cycle.awaiting_acknowledgment}{" "}
             awaiting acknowledgment
           </p>
+          <button
+            className="secondary"
+            disabled={busy || !cycle.awaiting_acknowledgment}
+            aria-label={`Remind unacknowledged employees · ${cycle.title}`}
+            onClick={() =>
+              void save({
+                action: "remind_acknowledgments",
+                cycle_id: cycle.id,
+              })
+            }
+          >
+            Remind unacknowledged employees
+          </button>
           <details>
             <summary>Assignment progress · {cycle.title}</summary>
             {cycle.assignments.length ? (
@@ -174,6 +192,7 @@ export default function PerformanceCycles({
                       <th>Due</th>
                       <th>Last reminder (Lagos)</th>
                       <th>Employee acknowledgment</th>
+                      <th>Acknowledgment follow-up</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -193,6 +212,21 @@ export default function PerformanceCycles({
                             : row.status === "Published"
                               ? "Awaiting acknowledgment"
                               : "Available after publication"}
+                        </td>
+                        <td>
+                          {row.acknowledged_at ? (
+                            "Received"
+                          ) : row.status !== "Published" ? (
+                            "Available after publication"
+                          ) : (
+                            <>
+                              {row.last_acknowledgment_reminder
+                                ? `Last reminded ${row.last_acknowledgment_reminder} · ${row.acknowledgment_reminder_count} sent`
+                                : "Never reminded"}
+                              {!row.can_remind_acknowledgment &&
+                                " · Employee unavailable"}
+                            </>
+                          )}
                         </td>
                       </tr>
                     ))}

@@ -396,6 +396,38 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    assert handoff_counts['status']=='Closed' and handoff_counts['acknowledged']==1 and handoff_counts['awaiting_acknowledgment']==0 and handoff_counts['assignments'][0]['acknowledged_at']
    assert not any(r['id']==rid for r in peer.expect(200,'/api/records/reviews')['rows'])
    peer.expect(400,'/api/review-acknowledgments',{'record_id':rid,'review_hash':closed_row['review_hash'],'confirmed':True})
+   # Closed cycles retain acknowledgment follow-up without reopening reviews.
+   followup={'action':'remind_acknowledgments','cycle_id':cycle}
+   guest.expect(401,'/api/performance',followup)
+   for client in [worker,manager,peer]:client.expect(403,'/api/performance',followup)
+   b.expect(400,'/api/performance',followup)
+   a.expect(403,'/api/performance',followup,origin='https://untrusted.example')
+   a.expect(400,'/api/performance',{**followup,'cycle_id':0})
+   assert a.expect(200,'/api/performance',{'action':'remind_acknowledgments','cycle_id':handoff})['sent']==0
+   assert a.expect(200,'/api/performance',{'action':'remind_acknowledgments','cycle_id':future})['sent']==0
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    original_reviews=db.execute('SELECT * FROM hr_records ORDER BY id').fetchall()
+    db.execute("UPDATE employees SET status='Inactive' WHERE id IN (?,?)",(wid,pid))
+   unavailable=a.expect(200,'/api/performance',followup);assert unavailable['sent']==0 and unavailable['unavailable']==2
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    db.execute("UPDATE employees SET status='Active' WHERE id IN (?,?)",(wid,pid))
+    db.execute("CREATE TRIGGER reject_ack_reminder BEFORE INSERT ON acknowledgment_reminders WHEN (SELECT COUNT(*) FROM acknowledgment_reminders)>0 BEGIN SELECT RAISE(ABORT,'fixture delivery failure'); END")
+   before_worker=len(worker.expect(200,'/api/notifications')['rows']);before_manager=len(manager.expect(200,'/api/notifications')['rows'])
+   a.expect(400,'/api/performance',followup)
+   assert len(worker.expect(200,'/api/notifications')['rows'])==before_worker
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT COUNT(*) FROM acknowledgment_reminders').fetchone()[0]==0
+    db.execute('DROP TRIGGER reject_ack_reminder')
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:followups=list(pool.map(lambda _:a.expect(200,'/api/performance',followup),range(2)))
+   assert sum(r['sent'] for r in followups)==2 and sum(r['skipped'] for r in followups)==2
+   assert len(worker.expect(200,'/api/notifications')['rows'])==before_worker+1
+   assert len(manager.expect(200,'/api/notifications')['rows'])==before_manager
+   receipt_target=next(r for r in worker.expect(200,'/api/records/reviews')['rows'] if r['title']=='Year end cycle')
+   worker.expect(200,'/api/review-acknowledgments',{'record_id':receipt_target['id'],'review_hash':receipt_target['review_hash'],'confirmed':True})
+   final_followup=a.expect(200,'/api/performance',followup);assert final_followup['sent']==0 and final_followup['skipped']==1
+   followup_cycle=next(c for c in a.expect(200,'/api/performance')['cycles'] if c['id']==cycle)
+   assert followup_cycle['acknowledged']==1 and followup_cycle['awaiting_acknowledgment']==1 and all(r['acknowledgment_reminder_count']==1 and r['last_acknowledgment_reminder'] for r in followup_cycle['assignments'])
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:assert db.execute('SELECT * FROM hr_records ORDER BY id').fetchall()==original_reviews
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})

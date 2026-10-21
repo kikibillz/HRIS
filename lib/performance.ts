@@ -1,3 +1,4 @@
+import { followUpAcknowledgments } from "./performance-followup";
 import { createHash } from "node:crypto";
 import { db } from "./db";
 import type { User } from "./auth";
@@ -57,7 +58,10 @@ export function performanceCycles(user: User) {
       .prepare(
         `SELECT ack.created AS acknowledged_at,r.id,r.employee_id,r.reviewer_id,r.title,r.body,r.data,r.progress,r.status,r.due,e.name AS employee_name,v.name AS reviewer_name,
     CASE WHEN r.status='Draft' AND r.due<>'' AND r.due<? AND c.status='Open' THEN 1 ELSE 0 END AS overdue,
-    (SELECT MAX(day) FROM performance_reminders pr WHERE pr.record_id=r.id) AS last_reminded
+    (SELECT MAX(day) FROM performance_reminders pr WHERE pr.record_id=r.id) AS last_reminded,
+    (SELECT MAX(day) FROM acknowledgment_reminders ar WHERE ar.record_id=r.id) AS last_acknowledgment_reminder,
+    (SELECT COUNT(*) FROM acknowledgment_reminders ar WHERE ar.record_id=r.id) AS acknowledgment_reminder_count,
+    EXISTS(SELECT 1 FROM accounts ac WHERE ac.employee_id=e.id) AND e.status='Active' AS can_remind_acknowledgment
     FROM performance_assignments a JOIN performance_cycles c ON c.id=a.cycle_id
     JOIN hr_records r ON r.id=a.record_id JOIN employees e ON e.id=r.employee_id
     JOIN employees v ON v.id=r.reviewer_id LEFT JOIN review_acknowledgments ack ON ack.record_id=r.id AND ack.company_id=c.company_id WHERE a.cycle_id=? AND c.company_id=? ORDER BY e.name,r.id`,
@@ -79,6 +83,8 @@ export function performanceCycles(user: User) {
 }
 export function changePerformance(user: User, b: Record<string, unknown>) {
   if (user.access !== "admin") throw Error("Administrator access required.");
+  if (b.action === "remind_acknowledgments")
+    return followUpAcknowledgments(user, b);
   db.exec("BEGIN IMMEDIATE");
   try {
     let result: Record<string, unknown>;

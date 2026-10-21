@@ -58,6 +58,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    a.expect(200,'/api/records/reviews',{'id':assignment['id'],'status':'Published'},method='PATCH')
    published=next(r for r in employee.expect(200,'/api/records/reviews')['rows'] if r['id']==assignment['id'])
    receipt_body={'record_id':published['id'],'review_hash':published['review_hash'],'confirmed':True}
+   assert a.expect(200,'/api/performance',{'action':'remind_acknowledgments','cycle_id':cycle})['sent']==1
    original_receipt=employee.expect(200,'/api/review-acknowledgments',receipt_body)['acknowledgment']
    a.document(wid)
    # A synthetic frozen offer proves archives preserve letters while excluding/revoking links.
@@ -80,6 +81,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    assert plain['tables']['performance_assignments'][0]['employee_id']==wid
    assert plain['tables']['performance_reminders'][0]['reviewer_id']==mid
    assert plain['tables']['review_acknowledgments'][0]['review_hash']==published['review_hash']
+   assert plain['tables']['acknowledgment_reminders'][0]['employee_id']==wid
    assert json.loads(plain['tables']['review_acknowledgments'][0]['snapshot'])['body']=='Recovery handoff evidence'
    assert json.loads(plain['tables']['performance_reassignments'][0]['snapshot'])['body']=='Recovery handoff evidence'
    text=json.dumps(plain);assert 'backup-b@example.test' not in text and 'Backup Beta' not in text
@@ -124,6 +126,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
     assert db.execute('SELECT employee_id FROM performance_assignments WHERE cycle_id=?',(cycle,)).fetchone()[0]==wid
     assert db.execute('SELECT reviewer_id FROM performance_reminders').fetchone()[0]==mid
     assert db.execute('SELECT review_hash FROM review_acknowledgments').fetchone()[0]==published['review_hash']
+    assert db.execute('SELECT employee_id FROM acknowledgment_reminders').fetchone()[0]==wid
     assert json.loads(db.execute('SELECT snapshot FROM performance_reassignments').fetchone()[0])['body']=='Recovery handoff evidence'
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert db.execute('SELECT role FROM employees WHERE id=?',(wid,)).fetchone()[0]=='Changed after backup'
    recovery_server=start(restored,3109,log);ready('http://127.0.0.1:3109');recovered_client=Client('http://127.0.0.1:3109');recovered_client.expect(200,'/api/auth',{'email':'backup-a@example.test','password':password});assert recovered_client.expect(200,'/api/operations')['company']['name']=='Backup Alpha';assert len(recovered_client.expect(200,'/api/payroll')['items'])==2
