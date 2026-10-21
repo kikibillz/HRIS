@@ -308,6 +308,57 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    for row in assigned:
     a.expect(400,'/api/records/reviews',{'id':row['id'],'body':'Overwrite final'},'PATCH')
    assert len([r for r in worker.expect(200,'/api/records/reviews')['rows'] if r['title']=='Year end cycle'])==1
+   # Reviewer handoff preserves responses and revokes previous reviewer access.
+   handoff=a.expect(200,'/api/performance',{**cycle_body,'title':'Reviewer handoff'})['id']
+   a.expect(200,'/api/performance',{'action':'assign','cycle_id':handoff,'reviewer_id':mid,'employee_ids':[wid]})
+   def handoff_row():return next(c for c in a.expect(200,'/api/performance')['cycles'] if c['id']==handoff)['assignments'][0]
+   initial=handoff_row();rid=initial['id']
+   transfer={'action':'reassign','cycle_id':handoff,'record_id':rid,'reviewer_id':pid,'reason':'Reviewer changed teams','revision':initial['revision']}
+   guest.expect(401,'/api/performance',transfer)
+   for client in [worker,peer,manager]:client.expect(403,'/api/performance',transfer)
+   b.expect(400,'/api/performance',transfer)
+   a.expect(403,'/api/performance',transfer,origin='https://untrusted.example')
+   manager.expect(200,'/api/records/reviews',{'id':rid,'body':'Preserve draft evidence','rating':3,'due':'2026-11-15'},'PATCH')
+   a.expect(400,'/api/performance',transfer)
+   transfer['revision']=handoff_row()['revision']
+   for bad in [{'reason':''},{'reason':'x'*2001},{'reviewer_id':mid},{'reviewer_id':wid},{'reviewer_id':bid},{'record_id':review},{'revision':'stale'}]:a.expect(400,'/api/performance',{**transfer,**bad})
+   no_account=next(p['id'] for p in a.expect(200,'/api/operations')['employees'] if p['email']=='imported-alpha@example.test')
+   a.expect(400,'/api/performance',{**transfer,'reviewer_id':no_account})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE employees SET status='Inactive' WHERE id=?",(pid,))
+   a.expect(400,'/api/performance',transfer)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    db.execute("UPDATE employees SET status='Active' WHERE id=?",(pid,))
+    before=db.execute('SELECT * FROM hr_records WHERE id=?',(rid,)).fetchone()
+    db.execute("CREATE TRIGGER reject_reassignment BEFORE INSERT ON performance_reassignments BEGIN SELECT RAISE(ABORT,'fixture history failure'); END")
+   a.expect(400,'/api/performance',transfer)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM hr_records WHERE id=?',(rid,)).fetchone()==before
+    assert db.execute('SELECT COUNT(*) FROM performance_reassignments WHERE record_id=?',(rid,)).fetchone()[0]==0
+    db.execute('DROP TRIGGER reject_reassignment')
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:handoffs=list(pool.map(lambda _:a.request('/api/performance',transfer),range(2)))
+   assert sorted(status for status,_ in handoffs)==[200,400];checks+=2
+   assert not any(r['id']==rid for r in manager.expect(200,'/api/records/reviews')['rows'])
+   manager.expect(400,'/api/records/reviews',{'id':rid,'body':'Former reviewer overwrite'},'PATCH')
+   replacement=next(r for r in peer.expect(200,'/api/records/reviews')['rows'] if r['id']==rid)
+   assert replacement['body']=='Preserve draft evidence' and replacement['data']['rating']==3 and replacement['status']=='Draft' and replacement['due']=='2026-11-15'
+   assert not any(r['id']==rid for r in worker.expect(200,'/api/records/reviews')['rows'])
+   row=handoff_row();assert row['history'][0]['reason']==transfer['reason'] and json.loads(row['history'][0]['snapshot'])['body']=='Preserve draft evidence'
+   assert a.expect(200,'/api/performance',{'action':'remind','cycle_id':handoff})['sent']==1
+   peer.expect(200,'/api/records/reviews',{'id':rid,'body':'Replacement submitted response','rating':4,'status':'Submitted'},'PATCH')
+   submitted_row=handoff_row()
+   back={**transfer,'reviewer_id':mid,'reason':'Original reviewer returned','revision':submitted_row['revision']}
+   a.expect(200,'/api/performance',back)
+   assert not any(r['id']==rid for r in peer.expect(200,'/api/records/reviews')['rows'])
+   peer.expect(400,'/api/records/reviews',{'id':rid,'body':'Former replacement overwrite'},'PATCH')
+   returned=next(r for r in manager.expect(200,'/api/records/reviews')['rows'] if r['id']==rid)
+   assert returned['status']=='Submitted' and returned['body']=='Replacement submitted response' and returned['data']['rating']==4
+   assert len(handoff_row()['history'])==2
+   a.expect(400,'/api/performance',{**transfer,'revision':initial['revision']})
+   a.expect(200,'/api/records/reviews',{'id':rid,'status':'Published'},'PATCH')
+   a.expect(400,'/api/performance',{**transfer,'revision':handoff_row()['revision']})
+   assert next(r for r in worker.expect(200,'/api/records/reviews')['rows'] if r['id']==rid)['body']=='Replacement submitted response'
+   a.expect(200,'/api/performance',{'action':'close','cycle_id':handoff})
+   a.expect(400,'/api/performance',back)
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})

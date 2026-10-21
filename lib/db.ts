@@ -247,3 +247,7 @@ CREATE TABLE IF NOT EXISTS performance_assignments(cycle_id INTEGER NOT NULL REF
 
 // Daily reminder keys persist across refreshes/restarts and commit with delivery.
 db.exec(`CREATE TABLE IF NOT EXISTS performance_reminders(record_id INTEGER NOT NULL REFERENCES hr_records(id),day TEXT NOT NULL,company_id INTEGER NOT NULL REFERENCES companies(id),reviewer_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),notification_id INTEGER NOT NULL REFERENCES notifications(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),PRIMARY KEY(record_id,day));`);
+
+// Reassignments preserve the exact response handed over and the reason for access changes.
+db.exec(`CREATE TABLE IF NOT EXISTS performance_reassignments(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),record_id INTEGER NOT NULL REFERENCES hr_records(id),from_reviewer_id INTEGER NOT NULL REFERENCES employees(id),to_reviewer_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),reason TEXT NOT NULL,snapshot TEXT NOT NULL,created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+CREATE INDEX IF NOT EXISTS performance_reassignments_record ON performance_reassignments(record_id,id);`);

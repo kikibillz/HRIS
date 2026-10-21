@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api, type Context } from "./types";
+import { api, dateTime, type Context } from "./types";
 type Cycle = {
   id: number;
   title: string;
@@ -14,6 +14,18 @@ type Cycle = {
   overdue: number;
   assignments: {
     id: number;
+    employee_id: number;
+    reviewer_id: number;
+    revision: string;
+    history: {
+      id: number;
+      reason: string;
+      created: string;
+      from_name: string;
+      to_name: string;
+      actor_name: string;
+      snapshot: string;
+    }[];
     employee_name: string;
     reviewer_name: string;
     status: string;
@@ -59,11 +71,13 @@ export default function PerformanceCycles({
     try {
       const result = await api("performance", body);
       setMessage(
-        result.sent !== undefined
-          ? `${result.sent} reminders sent; ${result.skipped} already reminded today.`
-          : result.assigned === undefined
-            ? "Cycle saved."
-            : `${result.assigned} reviews assigned; ${result.skipped} already assigned employees skipped.`,
+        result.reassigned
+          ? "Reviewer reassigned. Existing response and status preserved."
+          : result.sent !== undefined
+            ? `${result.sent} reminders sent; ${result.skipped} already reminded today.`
+            : result.assigned === undefined
+              ? "Cycle saved."
+              : `${result.assigned} reviews assigned; ${result.skipped} already assigned employees skipped.`,
       );
       await load();
       await onAssigned();
@@ -175,6 +189,101 @@ export default function PerformanceCycles({
             ) : (
               <p>No assignments yet.</p>
             )}
+            {cycle.assignments.map((row) => (
+              <section key={`${row.id}:${row.revision}`}>
+                {cycle.status === "Open" && row.status !== "Published" && (
+                  <details>
+                    <summary>Reassign reviewer · {row.employee_name}</summary>
+                    <p>
+                      Current reviewer: {row.reviewer_name}. The saved response,
+                      rating, status and due date will be preserved. The
+                      replacement receives access immediately.
+                    </p>
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const values = new FormData(e.currentTarget);
+                        void save({
+                          action: "reassign",
+                          cycle_id: cycle.id,
+                          record_id: row.id,
+                          revision: row.revision,
+                          reviewer_id: Number(values.get("reviewer_id")),
+                          reason: values.get("reason"),
+                        });
+                      }}
+                    >
+                      <label>
+                        Replacement reviewer
+                        <select
+                          aria-label={`Replacement reviewer · ${row.employee_name}`}
+                          name="reviewer_id"
+                          required
+                          defaultValue=""
+                        >
+                          <option value="">Choose reviewer…</option>
+                          {context.employees
+                            .filter(
+                              (p) =>
+                                p.status === "Active" &&
+                                p.account_access &&
+                                p.id !== row.employee_id &&
+                                p.id !== row.reviewer_id,
+                            )
+                            .map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <label>
+                        Reassignment reason
+                        <textarea
+                          aria-label={`Reassignment reason · ${row.employee_name}`}
+                          name="reason"
+                          required
+                          maxLength={2000}
+                        />
+                      </label>
+                      <button className="primary" disabled={busy}>
+                        Reassign reviewer
+                      </button>
+                    </form>
+                  </details>
+                )}
+                {!!row.history.length && (
+                  <details>
+                    <summary>
+                      Reassignment history · {row.employee_name}
+                    </summary>
+                    {row.history.map((event) => {
+                      const before = JSON.parse(event.snapshot);
+                      const data = JSON.parse(before.data);
+                      return (
+                        <article key={event.id}>
+                          <p>
+                            {event.from_name} → {event.to_name} ·{" "}
+                            {event.actor_name} · {dateTime(event.created)}
+                          </p>
+                          <p className="preserve-lines">
+                            Reason: {event.reason}
+                          </p>
+                          <p>
+                            Preserved status: {before.status} · Rating:{" "}
+                            {data.rating || "Not rated"}
+                          </p>
+                          <p className="preserve-lines">
+                            {before.body ||
+                              "No response saved at reassignment."}
+                          </p>
+                        </article>
+                      );
+                    })}
+                  </details>
+                )}
+              </section>
+            ))}
           </details>
           {cycle.status === "Open" && (
             <>

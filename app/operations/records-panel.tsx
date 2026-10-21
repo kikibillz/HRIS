@@ -76,7 +76,7 @@ export default function RecordsPanel({
         <PerformanceCycles
           context={context}
           onAssigned={load}
-          reviewState={rows.map((r) => `${r.id}:${r.status}`).join(",")}
+          reviewState={JSON.stringify(rows)}
         />
       )}
       <div className="ops-toolbar">

@@ -222,6 +222,27 @@ export function writeRecord(
   }
   db.exec("BEGIN IMMEDIATE");
   try {
+    if (kind === "reviews" && old) {
+      const latest = db
+        .prepare("SELECT * FROM hr_records WHERE id=? AND company_id=?")
+        .get(old.id, user.company_id) as HRRecord;
+      if (
+        [
+          "reviewer_id",
+          "title",
+          "body",
+          "status",
+          "due",
+          "data",
+          "progress",
+        ].some(
+          (key) => latest[key as keyof HRRecord] !== old[key as keyof HRRecord],
+        )
+      )
+        throw Error(
+          "The review changed. Refresh and review the latest assignment.",
+        );
+    }
     if (
       kind === "applicants" &&
       ["Offer", "Hired"].includes(status) &&

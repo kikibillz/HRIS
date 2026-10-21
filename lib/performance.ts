@@ -1,8 +1,32 @@
+import { createHash } from "node:crypto";
 import { db } from "./db";
 import type { User } from "./auth";
 import { audit, employeeInCompany, notify } from "./tenant";
 import { validDate } from "./leave-policy";
 import { onboardingDay } from "./onboarding-date";
+
+function revision(record: Record<string, unknown>) {
+  const event = db
+    .prepare(
+      "SELECT MAX(id) AS id FROM performance_reassignments WHERE record_id=?",
+    )
+    .get(Number(record.id));
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        record.id,
+        record.reviewer_id,
+        record.title,
+        record.body,
+        record.status,
+        record.due,
+        record.data,
+        record.progress,
+        event?.id,
+      ]),
+    )
+    .digest("hex");
+}
 
 type Cycle = {
   id: number;
@@ -29,14 +53,26 @@ export function performanceCycles(user: User) {
     ...cycle,
     assignments: db
       .prepare(
-        `SELECT r.id,r.employee_id,r.reviewer_id,r.status,r.due,e.name AS employee_name,v.name AS reviewer_name,
+        `SELECT r.id,r.employee_id,r.reviewer_id,r.title,r.body,r.data,r.progress,r.status,r.due,e.name AS employee_name,v.name AS reviewer_name,
     CASE WHEN r.status='Draft' AND r.due<>'' AND r.due<? AND c.status='Open' THEN 1 ELSE 0 END AS overdue,
     (SELECT MAX(day) FROM performance_reminders pr WHERE pr.record_id=r.id) AS last_reminded
     FROM performance_assignments a JOIN performance_cycles c ON c.id=a.cycle_id
     JOIN hr_records r ON r.id=a.record_id JOIN employees e ON e.id=r.employee_id
     JOIN employees v ON v.id=r.reviewer_id WHERE a.cycle_id=? AND c.company_id=? ORDER BY e.name,r.id`,
       )
-      .all(day, Number(cycle.id), user.company_id),
+      .all(day, Number(cycle.id), user.company_id)
+      .map((record) => {
+        const { body, data, progress, title, ...metadata } = record;
+        return {
+          ...metadata,
+          revision: revision(record),
+          history: db
+            .prepare(
+              `SELECT h.id,h.reason,h.created,h.snapshot,f.name AS from_name,t.name AS to_name,e.name AS actor_name FROM performance_reassignments h JOIN employees f ON f.id=h.from_reviewer_id JOIN employees t ON t.id=h.to_reviewer_id JOIN accounts ac ON ac.id=h.actor_id JOIN employees e ON e.id=ac.employee_id WHERE h.record_id=? AND h.company_id=? ORDER BY h.id DESC`,
+            )
+            .all(Number(record.id), user.company_id),
+        };
+      }),
   }));
 }
 export function changePerformance(user: User, b: Record<string, unknown>) {
@@ -147,6 +183,70 @@ export function changePerformance(user: User, b: Record<string, unknown>) {
           assigned++;
         }
         result = { assigned, skipped };
+      } else if (b.action === "reassign") {
+        if (
+          !Number.isSafeInteger(b.record_id) ||
+          !Number.isSafeInteger(b.reviewer_id)
+        )
+          throw Error("Choose a review and replacement reviewer.");
+        const record = db
+          .prepare(
+            `SELECT r.* FROM hr_records r JOIN performance_assignments a ON a.record_id=r.id WHERE r.id=? AND a.cycle_id=? AND r.company_id=? AND r.kind='reviews'`,
+          )
+          .get(Number(b.record_id), cycle.id, user.company_id);
+        if (!record) throw Error("Review not found in this cycle.");
+        if (record.status === "Published")
+          throw Error("Published reviews cannot be reassigned.");
+        if (typeof b.revision !== "string" || b.revision !== revision(record))
+          throw Error(
+            "The review changed. Refresh progress and review it again.",
+          );
+        const reason = typeof b.reason === "string" ? b.reason.trim() : "";
+        if (!reason || reason.length > 2000)
+          throw Error(
+            "Provide a reassignment reason of up to 2000 characters.",
+          );
+        const reviewer = Number(b.reviewer_id);
+        if (reviewer === record.reviewer_id || reviewer === record.employee_id)
+          throw Error(
+            "Choose a different reviewer who is not the employee being reviewed.",
+          );
+        if (
+          !employeeInCompany(reviewer, user.company_id) ||
+          !db
+            .prepare(
+              "SELECT 1 FROM employees e JOIN accounts ac ON ac.employee_id=e.id WHERE e.id=? AND e.status='Active'",
+            )
+            .get(reviewer)
+        )
+          throw Error(
+            "Choose an active reviewer with an account in this company.",
+          );
+        db.prepare(
+          "INSERT INTO performance_reassignments(company_id,record_id,from_reviewer_id,to_reviewer_id,actor_id,reason,snapshot) VALUES (?,?,?,?,?,?,?)",
+        ).run(
+          user.company_id,
+          Number(record.id),
+          Number(record.reviewer_id),
+          reviewer,
+          user.id,
+          reason,
+          JSON.stringify(record),
+        );
+        const data = JSON.parse(String(record.data));
+        data.reviewer_id = reviewer;
+        db.prepare("UPDATE hr_records SET reviewer_id=?,data=? WHERE id=?").run(
+          reviewer,
+          JSON.stringify(data),
+          Number(record.id),
+        );
+        audit(user, "Performance review reassigned", String(record.id));
+        notify(
+          reviewer,
+          "Review reassigned to you",
+          `${record.title} · Review #${record.id}. Existing response and status are preserved.`,
+        );
+        result = { reassigned: true, id: Number(record.id) };
       } else if (b.action === "remind") {
         const day = onboardingDay();
         if (cycle.start > day)

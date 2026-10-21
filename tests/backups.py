@@ -51,6 +51,10 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    cycle=a.expect(200,'/api/performance',{'action':'create','title':'Recovery cycle','start':'2026-10-01','due':'2026-12-31'})['id']
    a.expect(200,'/api/performance',{'action':'assign','cycle_id':cycle,'reviewer_id':mid,'employee_ids':[wid]})
    assert a.expect(200,'/api/performance',{'action':'remind','cycle_id':cycle})['sent']==1
+   assignment=next(c for c in a.expect(200,'/api/performance')['cycles'] if c['id']==cycle)['assignments'][0]
+   manager.expect(200,'/api/records/reviews',{'id':assignment['id'],'body':'Recovery handoff evidence','rating':4},method='PATCH')
+   assignment=next(c for c in a.expect(200,'/api/performance')['cycles'] if c['id']==cycle)['assignments'][0]
+   a.expect(200,'/api/performance',{'action':'reassign','cycle_id':cycle,'record_id':assignment['id'],'revision':assignment['revision'],'reviewer_id':aid,'reason':'Recovery reassignment fixture'})
    a.document(wid)
    # A synthetic frozen offer proves archives preserve letters while excluding/revoking links.
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:
@@ -71,6 +75,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    assert plain['tables']['performance_cycles'][0]['title']=='Recovery cycle'
    assert plain['tables']['performance_assignments'][0]['employee_id']==wid
    assert plain['tables']['performance_reminders'][0]['reviewer_id']==mid
+   assert json.loads(plain['tables']['performance_reassignments'][0]['snapshot'])['body']=='Recovery handoff evidence'
    text=json.dumps(plain);assert 'backup-b@example.test' not in text and 'Backup Beta' not in text
    assert base64.b64decode(plain['tables']['documents'][0]['bytes']['data'])==b'Company A private document'
    preview=a.expect(200,'/api/backups',{'action':'preview','passphrase':passphrase,'archive':encoded});assert preview['restore_supported'] is False
@@ -112,6 +117,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
     assert db.execute('SELECT title FROM performance_cycles WHERE id=?',(cycle,)).fetchone()[0]=='Recovery cycle'
     assert db.execute('SELECT employee_id FROM performance_assignments WHERE cycle_id=?',(cycle,)).fetchone()[0]==wid
     assert db.execute('SELECT reviewer_id FROM performance_reminders').fetchone()[0]==mid
+    assert json.loads(db.execute('SELECT snapshot FROM performance_reassignments').fetchone()[0])['body']=='Recovery handoff evidence'
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert db.execute('SELECT role FROM employees WHERE id=?',(wid,)).fetchone()[0]=='Changed after backup'
    recovery_server=start(restored,3109,log);ready('http://127.0.0.1:3109');recovered_client=Client('http://127.0.0.1:3109');recovered_client.expect(200,'/api/auth',{'email':'backup-a@example.test','password':password});assert recovered_client.expect(200,'/api/operations')['company']['name']=='Backup Alpha';assert len(recovered_client.expect(200,'/api/payroll')['items'])==2
    replay=recovered_client.expect(200,'/api/performance',{'action':'remind','cycle_id':cycle});assert replay['sent']==0 and replay['skipped']==1

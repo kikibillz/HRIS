@@ -1,5 +1,5 @@
 """Browser acceptance: signup -> import -> payroll -> mobile employee self-service."""
-import datetime, json, re, os, secrets, subprocess, tempfile, time, urllib.request
+import datetime, json, re, os, secrets, sqlite3, subprocess, tempfile, time, urllib.request
 from playwright.sync_api import sync_playwright, expect
 base='http://127.0.0.1:3106';password=secrets.token_urlsafe(24)
 with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
@@ -154,7 +154,25 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
     archive=company_download.value;assert archive.suggested_filename.endswith('.hrisbackup') and archive.failure() is None
     admin.get_by_label('Encrypted company archive file',exact=True).set_input_files(archive.path());admin.get_by_label('Archive passphrase',exact=True).fill(password);admin.get_by_role('button',name='Preview archive comparison',exact=True).click();expect(admin.get_by_text('Read-only comparison. No records were replaced.',exact=False)).to_be_visible()
     staff.goto(base+'/operations?tab=backups');expect(staff.get_by_text('Administrator access required.',exact=True)).to_be_visible();expect(staff.get_by_role('heading',name='Encrypted company archive',exact=True)).to_have_count(0)
-    assert not errors,errors;browser.close();print('PASS: browser company signup, validated staff import, review cycle creation/bulk assignment/duplicate protection/manual reminders/daily delivery limits/progress/publication/closure and mobile layout, payroll calculation/approval, invitations, mobile payslips, clock in/out, leave request, and learning knowledge check; reviewed bonus inputs, opening balances, immutable external review, locked periods, YTD totals and mobile adjusted payslips, cumulative preview, calculation/approval and own mobile tax working; salary/authority receipt entry, correction history and salary-paid reconciliation; export identifier review, bank ZIP download and statutory pack generation; encrypted company download, read-only archive comparison and employee backup denial; no browser errors.')
+    # Review reassignment form and preserved response history.
+    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:review_dept=db.execute("SELECT department_id FROM employees WHERE email='browser-worker@example.test'").fetchone()[0]
+    created=admin.request.post(base+'/api/employees',headers={'Origin':base},data={'name':'Browser Reviewer','email':'browser-reviewer@example.test','role':'Reviewer','department_id':review_dept,'access':'employee','password':password});assert created.status==201,created.text()
+    admin.goto(base+'/operations?tab=reviews')
+    admin.get_by_label('Cycle title',exact=True).fill('Browser handoff cycle');admin.get_by_label('Cycle start',exact=True).fill('2026-10-01');admin.get_by_label('Cycle due date',exact=True).fill('2026-12-31');admin.get_by_role('button',name='Create cycle',exact=True).click()
+    handoff=admin.locator('article').filter(has=admin.get_by_role('heading',name='Browser handoff cycle · Open',exact=True))
+    handoff.get_by_label('Cycle reviewer',exact=True).select_option(label='Browser Admin');handoff.get_by_role('checkbox',name='Browser Worker',exact=True).check();handoff.get_by_role('button',name='Assign selected employees',exact=True).click()
+    expect(admin.get_by_role('status')).to_contain_text('1 reviews assigned')
+    admin.get_by_role('button',name='Update record',exact=True).click();admin.get_by_label('Details',exact=True).fill('Preserved browser handoff response');admin.get_by_label('Rating (1–5)',exact=True).fill('4');admin.get_by_role('button',name='Save record',exact=True).click()
+    expect(admin.get_by_role('button',name='Save record',exact=True)).to_have_count(0)
+    handoff.get_by_text('Assignment progress · Browser handoff cycle',exact=True).click();handoff.get_by_text('Reassign reviewer · Browser Worker',exact=True).click()
+    handoff.get_by_label('Replacement reviewer · Browser Worker',exact=True).select_option(label='Browser Reviewer');handoff.get_by_label('Reassignment reason · Browser Worker',exact=True).fill('Original reviewer changed teams')
+    handoff.get_by_role('button',name='Reassign reviewer',exact=True).click();expect(admin.get_by_role('status')).to_contain_text('Reviewer reassigned. Existing response and status preserved.')
+    handoff.get_by_text('Reassignment history · Browser Worker',exact=True).click()
+    history=handoff.locator('details').filter(has_text='Reassignment history · Browser Worker').last
+    expect(history).to_contain_text('Original reviewer changed teams');expect(history).to_contain_text('Preserved browser handoff response');expect(history).to_contain_text('Rating: 4')
+    admin.set_viewport_size({'width':390,'height':844});assert admin.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    reviewer=browser.new_page();reviewer.goto(base+'/login');reviewer.get_by_label('Work email',exact=True).fill('browser-reviewer@example.test');reviewer.locator('input[name="password"]').fill(password);reviewer.get_by_role('button',name='Sign in',exact=True).click();expect(reviewer.locator('.profile-details')).to_contain_text('Browser Reviewer');reviewer.goto(base+'/operations?tab=reviews');expect(reviewer.get_by_text('Preserved browser handoff response',exact=True)).to_be_visible()
+    assert not errors,errors;browser.close();print('PASS: browser company signup, validated staff import, review cycle creation/bulk assignment/duplicate protection/manual reminders/daily delivery limits/progress/publication/closure/reviewer reassignment/preserved response history and mobile layout, payroll calculation/approval, invitations, mobile payslips, clock in/out, leave request, and learning knowledge check; reviewed bonus inputs, opening balances, immutable external review, locked periods, YTD totals and mobile adjusted payslips, cumulative preview, calculation/approval and own mobile tax working; salary/authority receipt entry, correction history and salary-paid reconciliation; export identifier review, bank ZIP download and statutory pack generation; encrypted company download, read-only archive comparison and employee backup denial; no browser errors.')
   except Exception:
    log.seek(0);print(log.read()[-6000:]);raise
   finally:server.terminate();server.wait(timeout=10)
