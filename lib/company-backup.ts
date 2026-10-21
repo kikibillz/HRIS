@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { db } from "./db";
 export const companyBackupLimit = 96 * 1024 * 1024;
 const scopedQueries: Record<string, string> = {
+  performance_reminders:
+    "SELECT * FROM performance_reminders WHERE company_id=?",
   performance_cycles: "SELECT * FROM performance_cycles WHERE company_id=?",
   performance_assignments:
     "SELECT a.* FROM performance_assignments a JOIN performance_cycles c ON c.id=a.cycle_id WHERE c.company_id=?",

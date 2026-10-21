@@ -40,6 +40,13 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
     expect(admin.get_by_role('status')).to_contain_text('1 reviews assigned; 0 already assigned')
     admin.get_by_role('button',name='Assign selected employees',exact=True).click()
     expect(admin.get_by_role('status')).to_contain_text('0 reviews assigned; 1 already assigned')
+    admin.get_by_role('button',name='Remind pending reviewers · Browser review cycle',exact=True).click()
+    expect(admin.get_by_role('status')).to_contain_text('1 reminders sent; 0 already reminded today.')
+    admin.get_by_role('button',name='Remind pending reviewers · Browser review cycle',exact=True).click()
+    expect(admin.get_by_role('status')).to_contain_text('0 reminders sent; 1 already reminded today.')
+    admin.get_by_text('Assignment progress · Browser review cycle',exact=True).click()
+    expect(admin.get_by_role('columnheader',name='Last reminder (Lagos)',exact=True)).to_be_visible()
+    admin.get_by_role('button',name='Refresh review progress',exact=True).click()
     expect(admin.get_by_role('button',name='Close cycle',exact=True)).to_be_disabled()
     admin.set_viewport_size({'width':390,'height':844});assert admin.evaluate('document.documentElement.scrollWidth <= innerWidth');admin.set_viewport_size({'width':1440,'height':1000})
     admin.get_by_role('button',name='Update record',exact=True).click()
@@ -48,6 +55,7 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
     admin.get_by_label('Status',exact=True).select_option('Published')
     admin.get_by_role('button',name='Save record',exact=True).click()
     expect(admin.get_by_role('button',name='Update record',exact=True)).to_have_count(0)
+    expect(admin.get_by_role('button',name='Remind pending reviewers · Browser review cycle',exact=True)).to_be_disabled()
     expect(admin.get_by_role('button',name='Close cycle',exact=True)).to_be_enabled()
     admin.get_by_role('button',name='Close cycle',exact=True).click()
     expect(admin.get_by_role('heading',name='Browser review cycle · Closed',exact=True)).to_be_visible()
@@ -146,7 +154,7 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
     archive=company_download.value;assert archive.suggested_filename.endswith('.hrisbackup') and archive.failure() is None
     admin.get_by_label('Encrypted company archive file',exact=True).set_input_files(archive.path());admin.get_by_label('Archive passphrase',exact=True).fill(password);admin.get_by_role('button',name='Preview archive comparison',exact=True).click();expect(admin.get_by_text('Read-only comparison. No records were replaced.',exact=False)).to_be_visible()
     staff.goto(base+'/operations?tab=backups');expect(staff.get_by_text('Administrator access required.',exact=True)).to_be_visible();expect(staff.get_by_role('heading',name='Encrypted company archive',exact=True)).to_have_count(0)
-    assert not errors,errors;browser.close();print('PASS: browser company signup, validated staff import, review cycle creation/bulk assignment/duplicate protection/publication/closure and mobile layout, payroll calculation/approval, invitations, mobile payslips, clock in/out, leave request, and learning knowledge check; reviewed bonus inputs, opening balances, immutable external review, locked periods, YTD totals and mobile adjusted payslips, cumulative preview, calculation/approval and own mobile tax working; salary/authority receipt entry, correction history and salary-paid reconciliation; export identifier review, bank ZIP download and statutory pack generation; encrypted company download, read-only archive comparison and employee backup denial; no browser errors.')
+    assert not errors,errors;browser.close();print('PASS: browser company signup, validated staff import, review cycle creation/bulk assignment/duplicate protection/manual reminders/daily delivery limits/progress/publication/closure and mobile layout, payroll calculation/approval, invitations, mobile payslips, clock in/out, leave request, and learning knowledge check; reviewed bonus inputs, opening balances, immutable external review, locked periods, YTD totals and mobile adjusted payslips, cumulative preview, calculation/approval and own mobile tax working; salary/authority receipt entry, correction history and salary-paid reconciliation; export identifier review, bank ZIP download and statutory pack generation; encrypted company download, read-only archive comparison and employee backup denial; no browser errors.')
   except Exception:
    log.seek(0);print(log.read()[-6000:]);raise
   finally:server.terminate();server.wait(timeout=10)

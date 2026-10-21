@@ -257,15 +257,54 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    result=a.expect(200,'/api/performance',batch);assert result['assigned']==0 and result['skipped']==2
    assert not [r for r in worker.expect(200,'/api/records/reviews')['rows'] if r['title']=='Year end cycle']
    assert not [r for r in b.expect(200,'/api/records/reviews')['rows'] if r['title']=='Year end cycle']
+   reminder={'action':'remind','cycle_id':cycle}
+   guest.expect(401,'/api/performance',reminder)
+   for client in [worker,manager]:client.expect(403,'/api/performance',reminder)
+   b.expect(400,'/api/performance',reminder)
+   a.expect(403,'/api/performance',reminder,origin='https://untrusted.example')
+   future=a.expect(200,'/api/performance',{**cycle_body,'start':'2099-01-01','due':'2099-12-31'})['id']
+   a.expect(400,'/api/performance',{'action':'remind','cycle_id':future})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    db.execute("UPDATE hr_records SET due='2000-01-01' WHERE id IN (SELECT record_id FROM performance_assignments WHERE cycle_id=?)",(cycle,))
+    db.execute("CREATE TRIGGER reject_review_reminder BEFORE INSERT ON performance_reminders WHEN (SELECT COUNT(*) FROM performance_reminders)>0 BEGIN SELECT RAISE(ABORT,'fixture delivery failure'); END")
+   cycle_data=next(c for c in a.expect(200,'/api/performance')['cycles'] if c['id']==cycle)
+   assert cycle_data['overdue']==2 and cycle_data['pending']==2 and all('body' not in row and 'rating' not in row for row in cycle_data['assignments'])
+   before_manager=len(manager.expect(200,'/api/notifications')['rows']);before_worker=len(worker.expect(200,'/api/notifications')['rows'])
+   a.expect(400,'/api/performance',reminder)
+   assert len(manager.expect(200,'/api/notifications')['rows'])==before_manager
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT COUNT(*) FROM performance_reminders').fetchone()[0]==0
+    db.execute('DROP TRIGGER reject_review_reminder')
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE employees SET status='Inactive' WHERE id=?",(mid,))
+   assert a.expect(200,'/api/performance',reminder)['sent']==0
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    db.execute("UPDATE employees SET status='Active' WHERE id=?",(mid,))
+    db.execute("UPDATE employees SET status='Inactive' WHERE id IN (?,?)",(wid,pid))
+   assert a.expect(200,'/api/performance',reminder)['sent']==0
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE employees SET status='Active' WHERE id IN (?,?)",(wid,pid))
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:deliveries=list(pool.map(lambda _:a.expect(200,'/api/performance',reminder),range(2)))
+   assert sum(d['sent'] for d in deliveries)==2 and sum(d['skipped'] for d in deliveries)==2
+   assert len(manager.expect(200,'/api/notifications')['rows'])==before_manager+2
+   assert len(worker.expect(200,'/api/notifications')['rows'])==before_worker
+   assert a.expect(200,'/api/performance',reminder)['sent']==0
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT COUNT(*) FROM performance_reminders').fetchone()[0]==2
+    db.execute("UPDATE performance_reminders SET day='2000-01-01'")
+   first=cycle_data['assignments'][0]['id']
+   manager.expect(200,'/api/records/reviews',{'id':first,'rating':4,'body':'Submitted before reminder','status':'Submitted'},'PATCH')
+   assert a.expect(200,'/api/performance',reminder)['sent']==1
+   cycle_data=next(c for c in a.expect(200,'/api/performance')['cycles'] if c['id']==cycle)
+   assert cycle_data['overdue']==1 and cycle_data['submitted']==1
    a.expect(400,'/api/performance',{'action':'close','cycle_id':cycle})
    assigned=[r for r in manager.expect(200,'/api/records/reviews')['rows'] if r['title']=='Year end cycle'];assert len(assigned)==2
    for row in assigned:
     manager.expect(400,'/api/records/reviews',{'id':row['id'],'rating':4,'body':'Cycle response','status':'Published'},'PATCH')
     manager.expect(200,'/api/records/reviews',{'id':row['id'],'rating':4,'body':'Cycle response','status':'Submitted'},'PATCH')
     a.expect(200,'/api/records/reviews',{'id':row['id'],'status':'Published'},'PATCH')
-   assert a.expect(200,'/api/performance')['cycles'][0]['published']==2
+   assert next(c for c in a.expect(200,'/api/performance')['cycles'] if c['id']==cycle)['published']==2
    a.expect(200,'/api/performance',{'action':'close','cycle_id':cycle})
    a.expect(400,'/api/performance',batch)
+   a.expect(400,'/api/performance',reminder)
    for row in assigned:
     a.expect(400,'/api/records/reviews',{'id':row['id'],'body':'Overwrite final'},'PATCH')
    assert len([r for r in worker.expect(200,'/api/records/reviews')['rows'] if r['title']=='Year end cycle'])==1

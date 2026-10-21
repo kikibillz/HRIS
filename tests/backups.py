@@ -50,6 +50,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    a.expect(200,'/api/payroll',{'action':'draft','period':'2026-11'});run=a.expect(200,'/api/payroll')['runs'][0]['id'];a.expect(200,'/api/payroll',{'action':'approve','run_id':run,'reviewed':True})
    cycle=a.expect(200,'/api/performance',{'action':'create','title':'Recovery cycle','start':'2026-10-01','due':'2026-12-31'})['id']
    a.expect(200,'/api/performance',{'action':'assign','cycle_id':cycle,'reviewer_id':mid,'employee_ids':[wid]})
+   assert a.expect(200,'/api/performance',{'action':'remind','cycle_id':cycle})['sent']==1
    a.document(wid)
    # A synthetic frozen offer proves archives preserve letters while excluding/revoking links.
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:
@@ -69,6 +70,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    assert plain['tables']['recruiting_offers'][0]['letter']=='Preserved frozen offer'
    assert plain['tables']['performance_cycles'][0]['title']=='Recovery cycle'
    assert plain['tables']['performance_assignments'][0]['employee_id']==wid
+   assert plain['tables']['performance_reminders'][0]['reviewer_id']==mid
    text=json.dumps(plain);assert 'backup-b@example.test' not in text and 'Backup Beta' not in text
    assert base64.b64decode(plain['tables']['documents'][0]['bytes']['data'])==b'Company A private document'
    preview=a.expect(200,'/api/backups',{'action':'preview','passphrase':passphrase,'archive':encoded});assert preview['restore_supported'] is False
@@ -109,8 +111,10 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
     assert db.execute('SELECT letter FROM recruiting_offers WHERE id=?',(offer,)).fetchone()[0]=='Preserved frozen offer'
     assert db.execute('SELECT title FROM performance_cycles WHERE id=?',(cycle,)).fetchone()[0]=='Recovery cycle'
     assert db.execute('SELECT employee_id FROM performance_assignments WHERE cycle_id=?',(cycle,)).fetchone()[0]==wid
+    assert db.execute('SELECT reviewer_id FROM performance_reminders').fetchone()[0]==mid
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert db.execute('SELECT role FROM employees WHERE id=?',(wid,)).fetchone()[0]=='Changed after backup'
    recovery_server=start(restored,3109,log);ready('http://127.0.0.1:3109');recovered_client=Client('http://127.0.0.1:3109');recovered_client.expect(200,'/api/auth',{'email':'backup-a@example.test','password':password});assert recovered_client.expect(200,'/api/operations')['company']['name']=='Backup Alpha';assert len(recovered_client.expect(200,'/api/payroll')['items'])==2
+   replay=recovered_client.expect(200,'/api/performance',{'action':'remind','cycle_id':cycle});assert replay['sent']==0 and replay['skipped']==1
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert not db.execute('PRAGMA foreign_key_check').fetchall()
    print(f'PASS: {checks} backup HTTP checks; company isolation, credential exclusion, authenticated encryption, tamper/wrong-key rejection, document preservation, same-count content comparison; consistent operator backup, no overwrite, credential revocation in recovered copy, unchanged live data and original-password login after recovery.')
   except Exception:

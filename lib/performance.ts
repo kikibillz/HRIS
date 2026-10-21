@@ -2,6 +2,7 @@ import { db } from "./db";
 import type { User } from "./auth";
 import { audit, employeeInCompany, notify } from "./tenant";
 import { validDate } from "./leave-policy";
+import { onboardingDay } from "./onboarding-date";
 
 type Cycle = {
   id: number;
@@ -12,15 +13,31 @@ type Cycle = {
 };
 export function performanceCycles(user: User) {
   if (user.access !== "admin") throw Error("Administrator access required.");
-  return db
+  const day = onboardingDay();
+  const cycles = db
     .prepare(
       `SELECT c.*,COUNT(a.record_id) AS assigned,
     SUM(CASE WHEN r.status='Submitted' THEN 1 ELSE 0 END) AS submitted,
-    SUM(CASE WHEN r.status='Published' THEN 1 ELSE 0 END) AS published
+    SUM(CASE WHEN r.status='Published' THEN 1 ELSE 0 END) AS published,
+    SUM(CASE WHEN r.status='Draft' THEN 1 ELSE 0 END) AS pending,
+    SUM(CASE WHEN c.status='Open' AND r.status='Draft' AND r.due<>'' AND r.due<? THEN 1 ELSE 0 END) AS overdue
     FROM performance_cycles c LEFT JOIN performance_assignments a ON a.cycle_id=c.id
     LEFT JOIN hr_records r ON r.id=a.record_id WHERE c.company_id=? GROUP BY c.id ORDER BY c.id DESC`,
     )
-    .all(user.company_id);
+    .all(day, user.company_id);
+  return cycles.map((cycle) => ({
+    ...cycle,
+    assignments: db
+      .prepare(
+        `SELECT r.id,r.employee_id,r.reviewer_id,r.status,r.due,e.name AS employee_name,v.name AS reviewer_name,
+    CASE WHEN r.status='Draft' AND r.due<>'' AND r.due<? AND c.status='Open' THEN 1 ELSE 0 END AS overdue,
+    (SELECT MAX(day) FROM performance_reminders pr WHERE pr.record_id=r.id) AS last_reminded
+    FROM performance_assignments a JOIN performance_cycles c ON c.id=a.cycle_id
+    JOIN hr_records r ON r.id=a.record_id JOIN employees e ON e.id=r.employee_id
+    JOIN employees v ON v.id=r.reviewer_id WHERE a.cycle_id=? AND c.company_id=? ORDER BY e.name,r.id`,
+      )
+      .all(day, Number(cycle.id), user.company_id),
+  }));
 }
 export function changePerformance(user: User, b: Record<string, unknown>) {
   if (user.access !== "admin") throw Error("Administrator access required.");
@@ -130,6 +147,57 @@ export function changePerformance(user: User, b: Record<string, unknown>) {
           assigned++;
         }
         result = { assigned, skipped };
+      } else if (b.action === "remind") {
+        const day = onboardingDay();
+        if (cycle.start > day)
+          throw Error("Reminders are available once the cycle starts.");
+        const rows = db
+          .prepare(
+            `SELECT r.id,r.reviewer_id,r.title,r.due FROM performance_assignments a
+          JOIN hr_records r ON r.id=a.record_id JOIN employees e ON e.id=r.employee_id
+          JOIN employees v ON v.id=r.reviewer_id
+          WHERE a.cycle_id=? AND r.company_id=? AND r.status='Draft'
+          AND e.status='Active' AND v.status='Active'
+          AND EXISTS(SELECT 1 FROM company_employees ce WHERE ce.employee_id=v.id AND ce.company_id=r.company_id)
+          AND EXISTS(SELECT 1 FROM accounts ac WHERE ac.employee_id=v.id)`,
+          )
+          .all(cycle.id, user.company_id);
+        let sent = 0,
+          skipped = 0;
+        for (const row of rows) {
+          if (
+            db
+              .prepare(
+                "SELECT 1 FROM performance_reminders WHERE record_id=? AND day=?",
+              )
+              .get(Number(row.id), day)
+          ) {
+            skipped++;
+            continue;
+          }
+          const notification = db
+            .prepare(
+              "INSERT INTO notifications(employee_id,title,body) VALUES (?,?,?)",
+            )
+            .run(
+              Number(row.reviewer_id),
+              "Performance review reminder",
+              `${row.title} · Review #${row.id}${row.due ? ` · Due ${row.due}` : ""}. Open Performance reviews to complete your assigned response.`,
+            );
+          db.prepare(
+            "INSERT INTO performance_reminders(record_id,day,company_id,reviewer_id,actor_id,notification_id) VALUES (?,?,?,?,?,?)",
+          ).run(
+            Number(row.id),
+            day,
+            user.company_id,
+            Number(row.reviewer_id),
+            user.id,
+            Number(notification.lastInsertRowid),
+          );
+          audit(user, "Performance review reminder sent", String(row.id));
+          sent++;
+        }
+        result = { sent, skipped };
       } else if (b.action === "close") {
         if (
           db

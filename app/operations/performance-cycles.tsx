@@ -10,6 +10,17 @@ type Cycle = {
   assigned: number;
   submitted: number;
   published: number;
+  pending: number;
+  overdue: number;
+  assignments: {
+    id: number;
+    employee_name: string;
+    reviewer_name: string;
+    status: string;
+    due: string;
+    overdue: number;
+    last_reminded: string | null;
+  }[];
 };
 export default function PerformanceCycles({
   context,
@@ -48,9 +59,11 @@ export default function PerformanceCycles({
     try {
       const result = await api("performance", body);
       setMessage(
-        result.assigned === undefined
-          ? "Cycle saved."
-          : `${result.assigned} reviews assigned; ${result.skipped} already assigned employees skipped.`,
+        result.sent !== undefined
+          ? `${result.sent} reminders sent; ${result.skipped} already reminded today.`
+          : result.assigned === undefined
+            ? "Cycle saved."
+            : `${result.assigned} reviews assigned; ${result.skipped} already assigned employees skipped.`,
       );
       await load();
       await onAssigned();
@@ -99,6 +112,26 @@ export default function PerformanceCycles({
           Create cycle
         </button>
       </form>
+      <button
+        className="secondary"
+        disabled={busy}
+        onClick={async () => {
+          setError("");
+          try {
+            await load();
+          } catch (e) {
+            setError(
+              e instanceof Error ? e.message : "Unable to refresh cycles.",
+            );
+          }
+        }}
+      >
+        Refresh review progress
+      </button>
+      <p>
+        Overdue means a draft response is past its due date in Lagos time.
+        Reminders go to active reviewers in the app, once per review each day.
+      </p>
       {cycles.map((cycle) => (
         <article key={cycle.id} className="ops-record">
           <h3>
@@ -107,9 +140,54 @@ export default function PerformanceCycles({
           <p>
             {cycle.start} to {cycle.due} · {cycle.assigned} assigned ·{" "}
             {cycle.submitted} awaiting publication · {cycle.published} published
+            · {cycle.pending} pending · {cycle.overdue} overdue
           </p>
+          <details>
+            <summary>Assignment progress · {cycle.title}</summary>
+            {cycle.assignments.length ? (
+              <div className="ops-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Reviewer</th>
+                      <th>Status</th>
+                      <th>Due</th>
+                      <th>Last reminder (Lagos)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cycle.assignments.map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.employee_name}</td>
+                        <td>{row.reviewer_name}</td>
+                        <td>
+                          {row.status}
+                          {row.overdue ? " · Overdue" : ""}
+                        </td>
+                        <td>{row.due || "No due date"}</td>
+                        <td>{row.last_reminded || "Never"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p>No assignments yet.</p>
+            )}
+          </details>
           {cycle.status === "Open" && (
             <>
+              <button
+                className="secondary"
+                disabled={busy || !cycle.pending}
+                aria-label={`Remind pending reviewers · ${cycle.title}`}
+                onClick={() =>
+                  void save({ action: "remind", cycle_id: cycle.id })
+                }
+              >
+                Remind pending reviewers
+              </button>
               <form
                 onSubmit={(e) => {
                   e.preventDefault();

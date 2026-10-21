@@ -244,3 +244,6 @@ CREATE TABLE IF NOT EXISTS recruiting_approval_closures(approval_id INTEGER PRIM
 // Cycles link to existing private review records without changing historical reviews.
 db.exec(`CREATE TABLE IF NOT EXISTS performance_cycles(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),title TEXT NOT NULL,start TEXT NOT NULL,due TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'Open' CHECK(status IN ('Open','Closed')),created_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));
 CREATE TABLE IF NOT EXISTS performance_assignments(cycle_id INTEGER NOT NULL REFERENCES performance_cycles(id),employee_id INTEGER NOT NULL REFERENCES employees(id),record_id INTEGER NOT NULL UNIQUE REFERENCES hr_records(id),PRIMARY KEY(cycle_id,employee_id));`);
+
+// Daily reminder keys persist across refreshes/restarts and commit with delivery.
+db.exec(`CREATE TABLE IF NOT EXISTS performance_reminders(record_id INTEGER NOT NULL REFERENCES hr_records(id),day TEXT NOT NULL,company_id INTEGER NOT NULL REFERENCES companies(id),reviewer_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),notification_id INTEGER NOT NULL REFERENCES notifications(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),PRIMARY KEY(record_id,day));`);
