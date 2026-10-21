@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import PerformanceCycles from "./performance-cycles";
 import { modules, referenceKinds } from "@/lib/modules";
 import { api, type Context, type Row } from "./types";
 export default function RecordsPanel({
@@ -71,6 +72,13 @@ export default function RecordsPanel({
   };
   return (
     <>
+      {kind === "reviews" && admin && (
+        <PerformanceCycles
+          context={context}
+          onAssigned={load}
+          reviewState={rows.map((r) => `${r.id}:${r.status}`).join(",")}
+        />
+      )}
       <div className="ops-toolbar">
         <label>
           Search

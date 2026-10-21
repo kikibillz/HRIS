@@ -237,6 +237,38 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute('UPDATE payroll_reviews SET snapshot_hash=? WHERE run_id=?',(original_hash,novrun))
    analytics=a.expect(200,'/api/reports');assert 0<=analytics['first_payroll_hours']<24 and analytics['funnel'][0]['status']=='Interview';assert b.expect(200,'/api/reports')['first_payroll_hours'] is None
    audit=a.expect(200,'/api/reports?type=audit');assert any(x['action']=='Payroll approved' for x in audit['rows'])
+   # Performance cycles preserve private drafts and atomically assign whole batches.
+   guest.expect(401,'/api/performance')
+   for client in [worker,manager]:
+    client.expect(403,'/api/performance')
+    client.expect(403,'/api/performance',{'action':'create'})
+   cycle_body={'action':'create','title':'Year end cycle','start':'2026-10-01','due':'2026-12-31'}
+   a.expect(400,'/api/performance',{**cycle_body,'start':'2026-02-30'})
+   a.expect(400,'/api/performance',{**cycle_body,'due':'2026-01-01'})
+   cycle=a.expect(200,'/api/performance',cycle_body)['id']
+   batch={'action':'assign','cycle_id':cycle,'reviewer_id':mid,'employee_ids':[wid,pid]}
+   b.expect(400,'/api/performance',batch)
+   a.expect(400,'/api/performance',{**batch,'employee_ids':[wid,bid]})
+   assert a.expect(200,'/api/performance')['cycles'][0]['assigned']==0
+   a.expect(400,'/api/performance',{**batch,'employee_ids':[mid]})
+   a.expect(400,'/api/performance',{**batch,'reviewer_id':bid})
+   a.expect(400,'/api/performance',{**batch,'employee_ids':[]})
+   result=a.expect(200,'/api/performance',batch);assert result['assigned']==2 and result['skipped']==0
+   result=a.expect(200,'/api/performance',batch);assert result['assigned']==0 and result['skipped']==2
+   assert not [r for r in worker.expect(200,'/api/records/reviews')['rows'] if r['title']=='Year end cycle']
+   assert not [r for r in b.expect(200,'/api/records/reviews')['rows'] if r['title']=='Year end cycle']
+   a.expect(400,'/api/performance',{'action':'close','cycle_id':cycle})
+   assigned=[r for r in manager.expect(200,'/api/records/reviews')['rows'] if r['title']=='Year end cycle'];assert len(assigned)==2
+   for row in assigned:
+    manager.expect(400,'/api/records/reviews',{'id':row['id'],'rating':4,'body':'Cycle response','status':'Published'},'PATCH')
+    manager.expect(200,'/api/records/reviews',{'id':row['id'],'rating':4,'body':'Cycle response','status':'Submitted'},'PATCH')
+    a.expect(200,'/api/records/reviews',{'id':row['id'],'status':'Published'},'PATCH')
+   assert a.expect(200,'/api/performance')['cycles'][0]['published']==2
+   a.expect(200,'/api/performance',{'action':'close','cycle_id':cycle})
+   a.expect(400,'/api/performance',batch)
+   for row in assigned:
+    a.expect(400,'/api/records/reviews',{'id':row['id'],'body':'Overwrite final'},'PATCH')
+   assert len([r for r in worker.expect(200,'/api/records/reviews')['rows'] if r['title']=='Year end cycle'])==1
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})

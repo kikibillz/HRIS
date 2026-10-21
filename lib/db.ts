@@ -240,3 +240,7 @@ if (
 }
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS recruiting_one_open_pending ON recruiting_approvals(applicant_id) WHERE status='Pending' AND closed_state='';
 CREATE TABLE IF NOT EXISTS recruiting_approval_closures(approval_id INTEGER PRIMARY KEY REFERENCES recruiting_approvals(id),company_id INTEGER NOT NULL REFERENCES companies(id),action TEXT NOT NULL CHECK(action IN ('Withdrawn','Reassigned')),replacement_id INTEGER UNIQUE REFERENCES recruiting_approvals(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),reason TEXT NOT NULL,created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),CHECK((action='Withdrawn' AND replacement_id IS NULL) OR (action='Reassigned' AND replacement_id IS NOT NULL)));`);
+
+// Cycles link to existing private review records without changing historical reviews.
+db.exec(`CREATE TABLE IF NOT EXISTS performance_cycles(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),title TEXT NOT NULL,start TEXT NOT NULL,due TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'Open' CHECK(status IN ('Open','Closed')),created_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+CREATE TABLE IF NOT EXISTS performance_assignments(cycle_id INTEGER NOT NULL REFERENCES performance_cycles(id),employee_id INTEGER NOT NULL REFERENCES employees(id),record_id INTEGER NOT NULL UNIQUE REFERENCES hr_records(id),PRIMARY KEY(cycle_id,employee_id));`);
