@@ -1,3 +1,4 @@
+import { assignReviewFollowup } from "./review-followup-inbox";
 import { db } from "./db";
 import type { User } from "./auth";
 import { audit, notify } from "./tenant";
@@ -29,6 +30,7 @@ function note(value: unknown, label: string) {
   return value.trim();
 }
 export function changeReviewFollowup(user: User, b: Record<string, unknown>) {
+  if (b.action === "assign") return assignReviewFollowup(user, b);
   db.exec("BEGIN IMMEDIATE");
   try {
     let recordId: number,

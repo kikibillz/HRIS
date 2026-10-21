@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { modules } from "@/lib/modules";
 import { api, type Context } from "./types";
 import RecordsPanel from "./records-panel";
+import ReviewFollowupInbox from "./review-followup-inbox";
 import PayrollPanel from "./payroll-panel";
 import OffersPanel from "./offers-panel";
 import RecruitingHandoffPanel from "./recruiting-handoff-panel";
@@ -17,6 +18,12 @@ const extras: Record<
   string,
   { title: string; description: string; admin?: boolean; manager?: boolean }
 > = {
+  "review-followup-inbox": {
+    title: "Review follow-up inbox",
+    description:
+      "Coordinate employee questions, HR ownership, due dates and final responses.",
+    admin: true,
+  },
   offers: {
     title: "Offer letters",
     description: "Issue private candidate letters and track responses.",
@@ -156,6 +163,7 @@ export default function Operations() {
     "recruiting-handoff",
     "goals",
     "reviews",
+    "review-followup-inbox",
     "feedback",
     "courses",
     "enrollments",
@@ -237,6 +245,8 @@ export default function Operations() {
             </p>
           ) : modules[tab] ? (
             <RecordsPanel key={tab} kind={tab} context={context} />
+          ) : tab === "review-followup-inbox" ? (
+            <ReviewFollowupInbox context={context} />
           ) : tab === "offers" ? (
             <OffersPanel />
           ) : tab === "recruiting-handoff" ? (
