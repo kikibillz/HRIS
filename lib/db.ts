@@ -257,3 +257,6 @@ db.exec(`CREATE TABLE IF NOT EXISTS review_acknowledgments(record_id INTEGER PRI
 
 // Receipt follow-ups are independent of reviewer reminders and remain valid after closure.
 db.exec(`CREATE TABLE IF NOT EXISTS acknowledgment_reminders(record_id INTEGER NOT NULL REFERENCES hr_records(id),day TEXT NOT NULL,company_id INTEGER NOT NULL REFERENCES companies(id),employee_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),notification_id INTEGER NOT NULL REFERENCES notifications(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),PRIMARY KEY(record_id,day));`);
+
+// Content-addressed summaries freeze operational completion evidence, not review responses.
+db.exec(`CREATE TABLE IF NOT EXISTS performance_summaries(id INTEGER PRIMARY KEY,cycle_id INTEGER NOT NULL REFERENCES performance_cycles(id),company_id INTEGER NOT NULL REFERENCES companies(id),content_hash TEXT NOT NULL,snapshot TEXT NOT NULL,created_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(cycle_id,content_hash));`);

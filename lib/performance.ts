@@ -1,3 +1,4 @@
+import { savePerformanceSummary } from "./performance-summaries";
 import { followUpAcknowledgments } from "./performance-followup";
 import { createHash } from "node:crypto";
 import { db } from "./db";
@@ -54,6 +55,12 @@ export function performanceCycles(user: User) {
     .all(day, user.company_id);
   return cycles.map((cycle) => ({
     ...cycle,
+    summaries: db
+      .prepare(
+        "SELECT id,content_hash,created,created_by,snapshot FROM performance_summaries WHERE cycle_id=? AND company_id=? ORDER BY id DESC",
+      )
+      .all(Number(cycle.id), user.company_id)
+      .map((row) => ({ ...row, snapshot: JSON.parse(String(row.snapshot)) })),
     assignments: db
       .prepare(
         `SELECT ack.created AS acknowledged_at,r.id,r.employee_id,r.reviewer_id,r.title,r.body,r.data,r.progress,r.status,r.due,e.name AS employee_name,v.name AS reviewer_name,
@@ -83,6 +90,7 @@ export function performanceCycles(user: User) {
 }
 export function changePerformance(user: User, b: Record<string, unknown>) {
   if (user.access !== "admin") throw Error("Administrator access required.");
+  if (b.action === "summarize") return savePerformanceSummary(user, b);
   if (b.action === "remind_acknowledgments")
     return followUpAcknowledgments(user, b);
   db.exec("BEGIN IMMEDIATE");

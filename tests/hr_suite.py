@@ -1,5 +1,5 @@
 """Two-company end-to-end API tests for the expanded HR suite. Disposable DB/port 3105."""
-import concurrent.futures, csv as csv_module, io, http.cookiejar, json, os, secrets, sqlite3, subprocess, tempfile, time, urllib.request, urllib.error
+import concurrent.futures, hashlib, csv as csv_module, io, http.cookiejar, json, os, secrets, sqlite3, subprocess, tempfile, time, urllib.request, urllib.error
 BASE='http://127.0.0.1:3105';checks=0;password=secrets.token_urlsafe(24)
 class Client:
  def __init__(self):self.http=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -428,6 +428,43 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    followup_cycle=next(c for c in a.expect(200,'/api/performance')['cycles'] if c['id']==cycle)
    assert followup_cycle['acknowledged']==1 and followup_cycle['awaiting_acknowledgment']==1 and all(r['acknowledgment_reminder_count']==1 and r['last_acknowledgment_reminder'] for r in followup_cycle['assignments'])
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:assert db.execute('SELECT * FROM hr_records ORDER BY id').fetchall()==original_reviews
+   # Closed-cycle summaries freeze completion metadata and remain tenant-private.
+   summary_body={'action':'summarize','cycle_id':cycle}
+   guest.expect(401,'/api/performance',summary_body)
+   guest.expect(401,'/api/performance-summaries?id=1')
+   for client in [worker,manager,peer]:
+    client.expect(403,'/api/performance',summary_body)
+    client.expect(403,'/api/performance-summaries?id=1')
+   b.expect(400,'/api/performance',summary_body)
+   a.expect(403,'/api/performance',summary_body,origin='https://untrusted.example')
+   a.expect(400,'/api/performance',{**summary_body,'cycle_id':0})
+   a.expect(400,'/api/performance',{**summary_body,'cycle_id':future})
+   for invalid in ['0','-1','1.2','1e2','bad','9007199254740992']:a.expect(400,'/api/performance-summaries?id='+invalid)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("CREATE TRIGGER reject_summary_audit BEFORE INSERT ON audit_log WHEN NEW.action='Performance completion summary saved' BEGIN SELECT RAISE(ABORT,'fixture summary audit failure'); END")
+   a.expect(400,'/api/performance',summary_body)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT COUNT(*) FROM performance_summaries').fetchone()[0]==0
+    db.execute('DROP TRIGGER reject_summary_audit')
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:saved=list(pool.map(lambda _:a.expect(200,'/api/performance',summary_body),range(2)))
+   assert len({s['summary_id'] for s in saved})==1 and sum(s['reused'] for s in saved)==1
+   sid=saved[0]['summary_id'];frozen=a.expect(200,'/api/performance-summaries?id='+str(sid))
+   b.expect(404,'/api/performance-summaries?id='+str(sid))
+   a.expect(404,'/api/performance-summaries?id=999999')
+   totals=frozen['snapshot']['totals'];assert totals['assigned']==2 and totals['acknowledged']==1 and totals['awaiting_acknowledgment']==1 and totals['acknowledgment_percent']==50
+   assert not any(key in json.dumps(frozen) for key in ['"body"','"rating"','"password_hash"','"email"'])
+   assert hashlib.sha256(json.dumps(frozen['snapshot'],ensure_ascii=False,separators=(',',':')).encode()).hexdigest()==frozen['content_hash']
+   peer_review=next(r for r in peer.expect(200,'/api/records/reviews')['rows'] if r['title']=='Year end cycle')
+   peer.expect(200,'/api/review-acknowledgments',{'record_id':peer_review['id'],'review_hash':peer_review['review_hash'],'confirmed':True})
+   updated=a.expect(200,'/api/performance',summary_body);assert not updated['reused'] and updated['summary_id']!=sid
+   assert a.expect(200,'/api/performance-summaries?id='+str(updated['summary_id']))['snapshot']['totals']['acknowledgment_percent']==100
+   assert a.expect(200,'/api/performance-summaries?id='+str(sid))==frozen
+   assert a.expect(200,'/api/performance',summary_body)['reused']
+   a.expect(200,'/api/performance',{'action':'close','cycle_id':future})
+   empty=a.expect(200,'/api/performance',{'action':'summarize','cycle_id':future})['summary_id']
+   empty_summary=a.expect(200,'/api/performance-summaries?id='+str(empty))['snapshot']['totals'];assert empty_summary['assigned']==0 and empty_summary['acknowledgment_percent'] is None
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM hr_records ORDER BY id').fetchall()==original_reviews
+    assert db.execute("SELECT COUNT(*) FROM audit_log WHERE action='Performance completion summary saved'").fetchone()[0]==3
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})

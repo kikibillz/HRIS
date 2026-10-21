@@ -177,6 +177,13 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
     closed_followup.get_by_role('button',name='Remind unacknowledged employees · Browser review cycle',exact=True).click();expect(admin.get_by_role('status').filter(has_text='acknowledgment reminders sent')).to_contain_text('1 acknowledgment reminders sent')
     closed_followup.get_by_role('button',name='Remind unacknowledged employees · Browser review cycle',exact=True).click();expect(admin.get_by_role('status').filter(has_text='acknowledgment reminders sent')).to_contain_text('0 acknowledgment reminders sent; 1 already reminded today')
     assert any(n['title']=='Review acknowledgment reminder' for n in staff.request.get(base+'/api/notifications').json()['rows'])
+    closed_followup.get_by_text('Completion summaries · Browser review cycle',exact=True).click()
+    closed_followup.get_by_role('button',name='Save completion summary',exact=True).click();expect(admin.get_by_role('status').filter(has_text='Completion summary saved.')).to_be_visible()
+    closed_followup.get_by_role('button',name='Save completion summary',exact=True).click();expect(admin.get_by_role('status').filter(has_text='The current completion summary is already saved.')).to_be_visible()
+    with admin.expect_download() as summary_download:closed_followup.get_by_role('link',name=re.compile(r'Download completion summary #')).click()
+    summary_file=summary_download.value;assert summary_file.suggested_filename.endswith('.json') and summary_file.failure() is None
+    with open(summary_file.path()) as source:saved_summary=json.load(source)
+    assert saved_summary['snapshot']['totals']['acknowledged']==0 and saved_summary['snapshot']['totals']['awaiting_acknowledgment']==1
     staff.goto(base+'/operations?tab=reviews')
     expect(staff.get_by_text('It does not mean you agree with its rating or outcome.',exact=False)).to_be_visible()
     staff.get_by_role('checkbox',name='I have received and read this review.',exact=True).check()
@@ -189,7 +196,12 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
     expect(completed_cycle).to_contain_text('1 acknowledged');expect(completed_cycle).to_contain_text('0 awaiting acknowledgment')
     completed_cycle.get_by_text('Assignment progress · Browser review cycle',exact=True).click();expect(completed_cycle.get_by_role('columnheader',name='Employee acknowledgment',exact=True)).to_be_visible()
     expect(admin.get_by_role('button',name='Acknowledge review',exact=True)).to_have_count(0)
-    assert not errors,errors;browser.close();print('PASS: browser company signup, validated staff import, review cycle creation/bulk assignment/duplicate protection/manual reminders/daily delivery limits/progress/publication/closure/reviewer reassignment/preserved response history/employee acknowledgment/HR receipt tracking and mobile layout, payroll calculation/approval, invitations, mobile payslips, clock in/out, leave request, and learning knowledge check; reviewed bonus inputs, opening balances, immutable external review, locked periods, YTD totals and mobile adjusted payslips, cumulative preview, calculation/approval and own mobile tax working; salary/authority receipt entry, correction history and salary-paid reconciliation; export identifier review, bank ZIP download and statutory pack generation; encrypted company download, read-only archive comparison and employee backup denial; no browser errors.')
+    completed_cycle.get_by_text('Completion summaries · Browser review cycle',exact=True).click();completed_cycle.get_by_role('button',name='Save completion summary',exact=True).click()
+    expect(completed_cycle.get_by_role('link',name=re.compile(r'Download completion summary #'))).to_have_count(2)
+    assert admin.request.get(base+'/api/performance-summaries?id='+str(saved_summary['id'])).json()==saved_summary
+    assert staff.request.get(base+'/api/performance-summaries?id='+str(saved_summary['id'])).status==403
+
+    assert not errors,errors;browser.close();print('PASS: browser company signup, validated staff import, review cycle creation/bulk assignment/duplicate protection/manual reminders/daily delivery limits/progress/publication/closure/reviewer reassignment/preserved response history/employee acknowledgment/receipt reminders/frozen completion summaries/HR receipt tracking and mobile layout, payroll calculation/approval, invitations, mobile payslips, clock in/out, leave request, and learning knowledge check; reviewed bonus inputs, opening balances, immutable external review, locked periods, YTD totals and mobile adjusted payslips, cumulative preview, calculation/approval and own mobile tax working; salary/authority receipt entry, correction history and salary-paid reconciliation; export identifier review, bank ZIP download and statutory pack generation; encrypted company download, read-only archive comparison and employee backup denial; no browser errors.')
   except Exception:
    log.seek(0);print(log.read()[-6000:]);raise
   finally:server.terminate();server.wait(timeout=10)

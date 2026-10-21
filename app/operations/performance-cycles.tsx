@@ -13,6 +13,20 @@ type Cycle = {
   acknowledged: number;
   awaiting_acknowledgment: number;
   pending: number;
+  summaries: {
+    id: number;
+    created: string;
+    content_hash: string;
+    snapshot: {
+      totals: {
+        assigned: number;
+        acknowledged: number;
+        awaiting_acknowledgment: number;
+        acknowledgment_percent: number | null;
+        unavailable_for_followup: number;
+      };
+    };
+  }[];
   overdue: number;
   assignments: {
     id: number;
@@ -77,15 +91,19 @@ export default function PerformanceCycles({
     try {
       const result = await api("performance", body);
       setMessage(
-        result.acknowledgment_reminders
-          ? `${result.sent} acknowledgment reminders sent; ${result.skipped} already reminded today; ${result.unavailable} employees unavailable.`
-          : result.reassigned
-            ? "Reviewer reassigned. Existing response and status preserved."
-            : result.sent !== undefined
-              ? `${result.sent} reminders sent; ${result.skipped} already reminded today.`
-              : result.assigned === undefined
-                ? "Cycle saved."
-                : `${result.assigned} reviews assigned; ${result.skipped} already assigned employees skipped.`,
+        result.summary_id !== undefined
+          ? result.reused
+            ? "The current completion summary is already saved."
+            : "Completion summary saved."
+          : result.acknowledgment_reminders
+            ? `${result.sent} acknowledgment reminders sent; ${result.skipped} already reminded today; ${result.unavailable} employees unavailable.`
+            : result.reassigned
+              ? "Reviewer reassigned. Existing response and status preserved."
+              : result.sent !== undefined
+                ? `${result.sent} reminders sent; ${result.skipped} already reminded today.`
+                : result.assigned === undefined
+                  ? "Cycle saved."
+                  : `${result.assigned} reviews assigned; ${result.skipped} already assigned employees skipped.`,
       );
       await load();
       await onAssigned();
@@ -166,6 +184,52 @@ export default function PerformanceCycles({
             {cycle.acknowledged} acknowledged · {cycle.awaiting_acknowledgment}{" "}
             awaiting acknowledgment
           </p>
+          {cycle.status === "Closed" && (
+            <details>
+              <summary>Completion summaries · {cycle.title}</summary>
+              <p>
+                Save a dated snapshot of published reviews, acknowledgment
+                receipts and outstanding follow-up. Saved summaries stay
+                unchanged as new receipts arrive.
+              </p>
+              <button
+                className="primary"
+                disabled={busy}
+                onClick={() =>
+                  void save({ action: "summarize", cycle_id: cycle.id })
+                }
+              >
+                Save completion summary
+              </button>
+              {cycle.summaries.map((summary) => (
+                <article key={summary.id}>
+                  <p>
+                    Summary #{summary.id} · {dateTime(summary.created)}
+                  </p>
+                  <p>
+                    {summary.snapshot.totals.assigned} published ·{" "}
+                    {summary.snapshot.totals.acknowledged} acknowledged ·{" "}
+                    {summary.snapshot.totals.awaiting_acknowledgment} awaiting
+                    acknowledgment ·{" "}
+                    {summary.snapshot.totals.unavailable_for_followup}{" "}
+                    unavailable for follow-up
+                  </p>
+                  <p>
+                    Acknowledgment completion:{" "}
+                    {summary.snapshot.totals.acknowledgment_percent === null
+                      ? "No assignments"
+                      : `${summary.snapshot.totals.acknowledgment_percent}%`}
+                  </p>
+                  <a href={`/api/performance-summaries?id=${summary.id}`}>
+                    Download completion summary #{summary.id}
+                  </a>
+                </article>
+              ))}
+              {!cycle.summaries.length && (
+                <p>No completion summaries saved yet.</p>
+              )}
+            </details>
+          )}
           <button
             className="secondary"
             disabled={busy || !cycle.awaiting_acknowledgment}
