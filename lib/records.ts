@@ -1,3 +1,4 @@
+import { listReviewFollowups } from "./review-followups";
 import {
   publishedReviewHash,
   reviewAcknowledgment,
@@ -63,6 +64,9 @@ export function listRecords(user: User, kind: string) {
           ? {
               review_hash: publishedReviewHash(r),
               acknowledgment: reviewAcknowledgment(r.id, user.company_id),
+              ...(user.access === "admin" || user.employee_id === r.employee_id
+                ? { followups: listReviewFollowups(user, r.id) }
+                : {}),
             }
           : {}),
       };

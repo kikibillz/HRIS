@@ -260,3 +260,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS acknowledgment_reminders(record_id INTEGER N
 
 // Content-addressed summaries freeze operational completion evidence, not review responses.
 db.exec(`CREATE TABLE IF NOT EXISTS performance_summaries(id INTEGER PRIMARY KEY,cycle_id INTEGER NOT NULL REFERENCES performance_cycles(id),company_id INTEGER NOT NULL REFERENCES companies(id),content_hash TEXT NOT NULL,snapshot TEXT NOT NULL,created_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(cycle_id,content_hash));`);
+
+// Follow-up questions and HR resolutions are separate from published review evidence.
+db.exec(`CREATE TABLE IF NOT EXISTS review_followups(id INTEGER PRIMARY KEY,record_id INTEGER NOT NULL REFERENCES hr_records(id),company_id INTEGER NOT NULL REFERENCES companies(id),employee_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),request_key TEXT NOT NULL,question TEXT NOT NULL,review_hash TEXT NOT NULL,snapshot TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'Open' CHECK(status IN ('Open','Resolved')),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(company_id,request_key));
+CREATE UNIQUE INDEX IF NOT EXISTS review_one_open_followup ON review_followups(record_id) WHERE status='Open';
+CREATE TABLE IF NOT EXISTS review_followup_resolutions(request_id INTEGER PRIMARY KEY REFERENCES review_followups(id),company_id INTEGER NOT NULL REFERENCES companies(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),note TEXT NOT NULL,created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));`);

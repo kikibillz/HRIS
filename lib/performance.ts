@@ -44,6 +44,7 @@ export function performanceCycles(user: User) {
     .prepare(
       `SELECT c.*,COUNT(a.record_id) AS assigned,
     SUM(CASE WHEN r.status='Submitted' THEN 1 ELSE 0 END) AS submitted,
+    SUM((SELECT COUNT(*) FROM review_followups f WHERE f.record_id=r.id AND f.company_id=c.company_id AND f.status='Open')) AS open_followups,
     SUM(CASE WHEN r.status='Published' THEN 1 ELSE 0 END) AS published,
     SUM(CASE WHEN r.status='Published' AND ack.record_id IS NOT NULL THEN 1 ELSE 0 END) AS acknowledged,
     SUM(CASE WHEN r.status='Published' AND ack.record_id IS NULL THEN 1 ELSE 0 END) AS awaiting_acknowledgment,
@@ -63,7 +64,7 @@ export function performanceCycles(user: User) {
       .map((row) => ({ ...row, snapshot: JSON.parse(String(row.snapshot)) })),
     assignments: db
       .prepare(
-        `SELECT ack.created AS acknowledged_at,r.id,r.employee_id,r.reviewer_id,r.title,r.body,r.data,r.progress,r.status,r.due,e.name AS employee_name,v.name AS reviewer_name,
+        `SELECT (SELECT COUNT(*) FROM review_followups f WHERE f.record_id=r.id AND f.company_id=c.company_id AND f.status='Open') AS open_followups,ack.created AS acknowledged_at,r.id,r.employee_id,r.reviewer_id,r.title,r.body,r.data,r.progress,r.status,r.due,e.name AS employee_name,v.name AS reviewer_name,
     CASE WHEN r.status='Draft' AND r.due<>'' AND r.due<? AND c.status='Open' THEN 1 ELSE 0 END AS overdue,
     (SELECT MAX(day) FROM performance_reminders pr WHERE pr.record_id=r.id) AS last_reminded,
     (SELECT MAX(day) FROM acknowledgment_reminders ar WHERE ar.record_id=r.id) AS last_acknowledgment_reminder,

@@ -465,6 +465,63 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
     assert db.execute('SELECT * FROM hr_records ORDER BY id').fetchall()==original_reviews
     assert db.execute("SELECT COUNT(*) FROM audit_log WHERE action='Performance completion summary saved'").fetchone()[0]==3
+   # Questions and final HR responses remain private and never rewrite reviews or receipts.
+   question={'action':'request','record_id':review,'review_hash':published['review_hash'],'request_key':secrets.token_hex(16),'question':'Please explain the evidence supporting this rating.'}
+   followup_url='/api/review-followups?record_id='+str(review)
+   guest.expect(401,'/api/review-followups',question);guest.expect(401,followup_url)
+   for client in [b,manager,peer]:
+    client.expect(400,'/api/review-followups',question);client.expect(404,followup_url)
+   a.expect(400,'/api/review-followups',question)
+   worker.expect(403,'/api/review-followups',question,origin='https://untrusted.example')
+   for bad in [{'question':''},{'question':None},{'question':'x'*4001},{'review_hash':'stale'},{'request_key':'short'},{'record_id':0},{'record_id':policy},{'record_id':draft}]:worker.expect(400,'/api/review-followups',{**question,**bad})
+   worker.expect(400,'/api/review-followups?record_id=bad')
+   before_requests=worker.expect(200,followup_url);assert before_requests['requests']==[]
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    original_receipts=db.execute('SELECT * FROM review_acknowledgments ORDER BY record_id').fetchall()
+    db.execute("CREATE TRIGGER reject_followup_request BEFORE INSERT ON audit_log WHEN NEW.action='Review follow-up requested' BEGIN SELECT RAISE(ABORT,'fixture request failure'); END")
+   worker.expect(400,'/api/review-followups',question)
+   assert worker.expect(200,followup_url)['requests']==[]
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute('DROP TRIGGER reject_followup_request')
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:questions=list(pool.map(lambda _:worker.expect(200,'/api/review-followups',question),range(2)))
+   assert len({q['id'] for q in questions})==1 and sum(q['reused'] for q in questions)==1
+   qid=questions[0]['id']
+   worker.expect(400,'/api/review-followups',{**question,'question':'Alter original request'})
+   worker.expect(400,'/api/review-followups',{**question,'request_key':secrets.token_hex(16)})
+   assert a.expect(200,followup_url)['requests'][0]['question']==question['question']
+   manager_view=next(r for r in manager.expect(200,'/api/records/reviews')['rows'] if r['id']==review);assert 'followups' not in manager_view
+   assert next(r for r in worker.expect(200,'/api/records/reviews')['rows'] if r['id']==review)['followups'][0]['id']==qid
+   resolution={'action':'resolve','request_id':qid,'note':'We discussed the evidence and recorded your question. The published review remains unchanged.'}
+   for client in [worker,manager,peer]:client.expect(403,'/api/review-followups',resolution)
+   b.expect(400,'/api/review-followups',resolution)
+   a.expect(403,'/api/review-followups',resolution,origin='https://untrusted.example')
+   for bad in [{'note':''},{'note':None},{'note':'x'*4001},{'request_id':0}]:a.expect(400,'/api/review-followups',{**resolution,**bad})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("CREATE TRIGGER reject_followup_resolution BEFORE INSERT ON audit_log WHEN NEW.action='Review follow-up resolved' BEGIN SELECT RAISE(ABORT,'fixture resolution failure'); END")
+   a.expect(400,'/api/review-followups',resolution)
+   assert worker.expect(200,followup_url)['requests'][0]['status']=='Open'
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT COUNT(*) FROM review_followup_resolutions').fetchone()[0]==0
+    db.execute('DROP TRIGGER reject_followup_resolution')
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:resolved=list(pool.map(lambda _:a.expect(200,'/api/review-followups',resolution),range(2)))
+   assert sum(r['reused'] for r in resolved)==1
+   a.expect(400,'/api/review-followups',{**resolution,'note':'Rewrite final HR response'})
+   assert worker.expect(200,'/api/review-followups',question)['reused']
+   assert len(worker.expect(200,followup_url)['requests'])==1
+   answer=worker.expect(200,followup_url)['requests'][0];assert answer['status']=='Resolved' and answer['resolution_note']==resolution['note'] and answer['resolved_at'] and answer['resolved_by']
+   second=worker.expect(200,'/api/review-followups',{**question,'record_id':rid,'review_hash':closed_row['review_hash'],'request_key':secrets.token_hex(16)})['id']
+   assert next(c for c in a.expect(200,'/api/performance')['cycles'] if c['id']==handoff)['open_followups']==1
+   a.expect(200,'/api/review-followups',{**resolution,'request_id':second})
+   assert next(c for c in a.expect(200,'/api/performance')['cycles'] if c['id']==handoff)['open_followups']==0
+   # Acknowledgment remains optional for asking HR a question.
+   a.expect(200,'/api/records/reviews',{'id':draft,'rating':3,'body':'Pre-acknowledgment question fixture','status':'Published'},'PATCH')
+   unacknowledged=next(r for r in worker.expect(200,'/api/records/reviews')['rows'] if r['id']==draft)
+   worker.expect(200,'/api/review-followups',{**question,'record_id':draft,'review_hash':unacknowledged['review_hash'],'request_key':secrets.token_hex(16)})
+   assert next(r for r in worker.expect(200,'/api/records/reviews')['rows'] if r['id']==draft)['acknowledgment'] is None
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM review_acknowledgments ORDER BY record_id').fetchall()==original_receipts
+    assert db.execute('SELECT * FROM hr_records WHERE id<>? ORDER BY id',(draft,)).fetchall()==[row for row in original_reviews if row[0]!=draft]
+    evidence=db.execute('SELECT snapshot,question FROM review_followups WHERE id=?',(qid,)).fetchone();assert json.loads(evidence[0])['body']=='Excellent' and evidence[1]==question['question']
+    assert db.execute("SELECT COUNT(*) FROM audit_log WHERE action='Review follow-up requested'").fetchone()[0]==3
+    assert db.execute("SELECT COUNT(*) FROM audit_log WHERE action='Review follow-up resolved'").fetchone()[0]==2
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})

@@ -13,6 +13,7 @@ type Cycle = {
   acknowledged: number;
   awaiting_acknowledgment: number;
   pending: number;
+  open_followups: number;
   summaries: {
     id: number;
     created: string;
@@ -49,6 +50,7 @@ type Cycle = {
     overdue: number;
     last_reminded: string | null;
     acknowledged_at: string | null;
+    open_followups: number;
     last_acknowledgment_reminder: string | null;
     acknowledgment_reminder_count: number;
     can_remind_acknowledgment: number;
@@ -182,7 +184,8 @@ export default function PerformanceCycles({
             {cycle.submitted} awaiting publication · {cycle.published} published
             · {cycle.pending} pending · {cycle.overdue} overdue ·{" "}
             {cycle.acknowledged} acknowledged · {cycle.awaiting_acknowledgment}{" "}
-            awaiting acknowledgment
+            awaiting acknowledgment · {cycle.open_followups} open employee
+            follow-ups
           </p>
           {cycle.status === "Closed" && (
             <details>
@@ -256,6 +259,7 @@ export default function PerformanceCycles({
                       <th>Due</th>
                       <th>Last reminder (Lagos)</th>
                       <th>Employee acknowledgment</th>
+                      <th>Employee questions</th>
                       <th>Acknowledgment follow-up</th>
                     </tr>
                   </thead>
@@ -276,6 +280,11 @@ export default function PerformanceCycles({
                             : row.status === "Published"
                               ? "Awaiting acknowledgment"
                               : "Available after publication"}
+                        </td>
+                        <td>
+                          {row.open_followups
+                            ? `${row.open_followups} open · See review card`
+                            : "No open follow-ups"}
                         </td>
                         <td>
                           {row.acknowledged_at ? (

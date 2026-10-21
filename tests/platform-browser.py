@@ -201,7 +201,21 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
     assert admin.request.get(base+'/api/performance-summaries?id='+str(saved_summary['id'])).json()==saved_summary
     assert staff.request.get(base+'/api/performance-summaries?id='+str(saved_summary['id'])).status==403
 
-    assert not errors,errors;browser.close();print('PASS: browser company signup, validated staff import, review cycle creation/bulk assignment/duplicate protection/manual reminders/daily delivery limits/progress/publication/closure/reviewer reassignment/preserved response history/employee acknowledgment/receipt reminders/frozen completion summaries/HR receipt tracking and mobile layout, payroll calculation/approval, invitations, mobile payslips, clock in/out, leave request, and learning knowledge check; reviewed bonus inputs, opening balances, immutable external review, locked periods, YTD totals and mobile adjusted payslips, cumulative preview, calculation/approval and own mobile tax working; salary/authority receipt entry, correction history and salary-paid reconciliation; export identifier review, bank ZIP download and statutory pack generation; encrypted company download, read-only archive comparison and employee backup denial; no browser errors.')
+    staff.get_by_label('Question for HR · Browser review cycle',exact=True).fill('Please clarify the evidence behind my review rating.')
+    staff.get_by_role('button',name='Request HR follow-up',exact=True).click();expect(staff.get_by_role('status').filter(has_text='Follow-up request sent to HR.')).to_be_visible()
+    expect(staff.get_by_text('HR is reviewing your open follow-up request.',exact=True)).to_be_visible()
+    staff_context=staff.request.get(base+'/api/records/reviews').json()['rows'];question_review=next(r for r in staff_context if r['title']=='Browser review cycle')
+    private_url=base+'/api/review-followups?record_id='+str(question_review['id']);assert reviewer.request.get(private_url).status==404
+    admin.goto(base+'/operations?tab=reviews')
+    hr_record=admin.locator('.ops-cards > article').filter(has=admin.get_by_role('heading',name='Browser review cycle',exact=True))
+    expect(hr_record.get_by_text('Please clarify the evidence behind my review rating.',exact=True)).to_be_visible()
+    hr_record.get_by_role('textbox',name=re.compile(r'^HR response · Follow-up #')).fill('We reviewed the examples together and recorded your question.')
+    hr_record.get_by_role('button',name='Record response and resolve',exact=True).click();expect(hr_record.get_by_role('status').filter(has_text='HR response recorded and follow-up resolved.')).to_be_visible()
+    expect(hr_record.get_by_role('button',name='Record response and resolve',exact=True)).to_have_count(0)
+    staff.reload();expect(staff.get_by_text('We reviewed the examples together and recorded your question.',exact=True)).to_be_visible()
+    expect(staff.get_by_role('button',name='Request HR follow-up',exact=True)).to_be_visible();expect(staff.get_by_role('status').filter(has_text='Acknowledged by employee')).to_be_visible();assert staff.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    assert admin.request.get(base+'/api/performance-summaries?id='+str(saved_summary['id'])).json()==saved_summary
+    assert not errors,errors;browser.close();print('PASS: browser company signup, validated staff import, review cycle creation/bulk assignment/duplicate protection/manual reminders/daily delivery limits/progress/publication/closure/reviewer reassignment/preserved response history/employee acknowledgment/receipt reminders/frozen completion summaries/HR receipt tracking/private employee questions/final HR resolutions and mobile layout, payroll calculation/approval, invitations, mobile payslips, clock in/out, leave request, and learning knowledge check; reviewed bonus inputs, opening balances, immutable external review, locked periods, YTD totals and mobile adjusted payslips, cumulative preview, calculation/approval and own mobile tax working; salary/authority receipt entry, correction history and salary-paid reconciliation; export identifier review, bank ZIP download and statutory pack generation; encrypted company download, read-only archive comparison and employee backup denial; no browser errors.')
   except Exception:
    log.seek(0);print(log.read()[-6000:]);raise
   finally:server.terminate();server.wait(timeout=10)

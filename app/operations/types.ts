@@ -22,6 +22,18 @@ export type Context = {
   managed: { employee_id: number }[];
   ai_configured: boolean;
 };
+export type ReviewFollowup = {
+  id: number;
+  record_id: number;
+  employee_id: number;
+  question: string;
+  review_hash: string;
+  status: "Open" | "Resolved";
+  created: string;
+  resolution_note: string | null;
+  resolved_at: string | null;
+  resolved_by: string | null;
+};
 export type Row = {
   id: number;
   title: string;
@@ -35,6 +47,7 @@ export type Row = {
   created: string;
   data: Record<string, string | number>;
   review_hash?: string;
+  followups?: ReviewFollowup[];
   acknowledgment?: {
     record_id: number;
     employee_id: number;

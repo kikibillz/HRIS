@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import PerformanceCycles from "./performance-cycles";
 import ReviewAcknowledgment from "./review-acknowledgment";
+import ReviewFollowups from "./review-followups";
 import { modules, referenceKinds } from "@/lib/modules";
 import { api, type Context, type Row } from "./types";
 export default function RecordsPanel({
@@ -294,6 +295,9 @@ export default function RecordsPanel({
                   context={context}
                   onAcknowledged={load}
                 />
+              )}
+              {kind === "reviews" && r.status === "Published" && (
+                <ReviewFollowups row={r} context={context} onSaved={load} />
               )}
               {canEdit(r) && (
                 <button
