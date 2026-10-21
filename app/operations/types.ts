@@ -34,6 +34,14 @@ export type Row = {
   due: string;
   created: string;
   data: Record<string, string | number>;
+  review_hash?: string;
+  acknowledgment?: {
+    record_id: number;
+    employee_id: number;
+    actor_id: number;
+    review_hash: string;
+    created: string;
+  } | null;
 };
 export async function api(path: string, body?: unknown, method = "POST") {
   const response = await fetch(

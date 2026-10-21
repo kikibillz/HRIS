@@ -359,6 +359,43 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    assert next(r for r in worker.expect(200,'/api/records/reviews')['rows'] if r['id']==rid)['body']=='Replacement submitted response'
    a.expect(200,'/api/performance',{'action':'close','cycle_id':handoff})
    a.expect(400,'/api/performance',back)
+   # Employee acknowledgment is a separate, immutable receipt of a published review.
+   published=next(r for r in worker.expect(200,'/api/records/reviews')['rows'] if r['id']==review)
+   receipt_body={'record_id':review,'review_hash':published['review_hash'],'confirmed':True}
+   assert published['acknowledgment'] is None
+   guest.expect(401,'/api/review-acknowledgments',receipt_body)
+   for client in [a,b,manager,peer]:client.expect(400,'/api/review-acknowledgments',receipt_body)
+   worker.expect(403,'/api/review-acknowledgments',receipt_body,origin='https://untrusted.example')
+   for bad in [{'confirmed':False},{'confirmed':'true'},{'review_hash':'wrong'},{'review_hash':None},{'record_id':0},{'record_id':'1'},{'record_id':policy}]:worker.expect(400,'/api/review-acknowledgments',{**receipt_body,**bad})
+   draft=records(a,'reviews',{'title':'Unpublished receipt protection','employee_id':wid,'reviewer_id':mid})
+   worker.expect(400,'/api/review-acknowledgments',{**receipt_body,'record_id':draft})
+   draft_row=next(r for r in manager.expect(200,'/api/records/reviews')['rows'] if r['id']==draft)
+   assert 'review_hash' not in draft_row and 'acknowledgment' not in draft_row
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    review_before=db.execute('SELECT * FROM hr_records WHERE id=?',(review,)).fetchone()
+    db.execute("CREATE TRIGGER reject_receipt_audit BEFORE INSERT ON audit_log WHEN NEW.action='Published review acknowledged' BEGIN SELECT RAISE(ABORT,'fixture receipt audit failure'); END")
+   worker.expect(400,'/api/review-acknowledgments',receipt_body)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT COUNT(*) FROM review_acknowledgments').fetchone()[0]==0
+    db.execute('DROP TRIGGER reject_receipt_audit')
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:receipts=list(pool.map(lambda _:worker.expect(200,'/api/review-acknowledgments',{**receipt_body,'employee_id':pid,'actor_id':ca['user']['id']}),range(2)))
+   assert sum(r['already_acknowledged'] for r in receipts)==1
+   receipt=receipts[0]['acknowledgment'];assert receipt['employee_id']==wid
+   replay=worker.expect(200,'/api/review-acknowledgments',receipt_body);assert replay['already_acknowledged'] and replay['acknowledgment']==receipt
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM hr_records WHERE id=?',(review,)).fetchone()==review_before
+    assert db.execute("SELECT COUNT(*) FROM audit_log WHERE action='Published review acknowledged' AND target=?",(str(review),)).fetchone()[0]==1
+    evidence=db.execute('SELECT snapshot,actor_id FROM review_acknowledgments WHERE record_id=?',(review,)).fetchone()
+    assert json.loads(evidence[0])['body']=='Excellent' and evidence[1]==worker.expect(200,'/api/operations')['user']['id']
+   for client in [worker,a,manager]:assert next(r for r in client.expect(200,'/api/records/reviews')['rows'] if r['id']==review)['acknowledgment']==receipt
+   worker.expect(400,'/api/records/reviews',{'id':review,'body':'Overwrite acknowledged review'},'PATCH')
+   a.expect(400,'/api/records/reviews',{'id':review,'body':'Overwrite acknowledged review'},'PATCH')
+   closed_row=next(r for r in worker.expect(200,'/api/records/reviews')['rows'] if r['id']==rid)
+   worker.expect(200,'/api/review-acknowledgments',{'record_id':rid,'review_hash':closed_row['review_hash'],'confirmed':True})
+   handoff_counts=next(c for c in a.expect(200,'/api/performance')['cycles'] if c['id']==handoff)
+   assert handoff_counts['status']=='Closed' and handoff_counts['acknowledged']==1 and handoff_counts['awaiting_acknowledgment']==0 and handoff_counts['assignments'][0]['acknowledged_at']
+   assert not any(r['id']==rid for r in peer.expect(200,'/api/records/reviews')['rows'])
+   peer.expect(400,'/api/review-acknowledgments',{'record_id':rid,'review_hash':closed_row['review_hash'],'confirmed':True})
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})

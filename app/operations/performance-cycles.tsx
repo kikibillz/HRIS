@@ -10,6 +10,8 @@ type Cycle = {
   assigned: number;
   submitted: number;
   published: number;
+  acknowledged: number;
+  awaiting_acknowledgment: number;
   pending: number;
   overdue: number;
   assignments: {
@@ -32,6 +34,7 @@ type Cycle = {
     due: string;
     overdue: number;
     last_reminded: string | null;
+    acknowledged_at: string | null;
   }[];
 };
 export default function PerformanceCycles({
@@ -154,7 +157,9 @@ export default function PerformanceCycles({
           <p>
             {cycle.start} to {cycle.due} · {cycle.assigned} assigned ·{" "}
             {cycle.submitted} awaiting publication · {cycle.published} published
-            · {cycle.pending} pending · {cycle.overdue} overdue
+            · {cycle.pending} pending · {cycle.overdue} overdue ·{" "}
+            {cycle.acknowledged} acknowledged · {cycle.awaiting_acknowledgment}{" "}
+            awaiting acknowledgment
           </p>
           <details>
             <summary>Assignment progress · {cycle.title}</summary>
@@ -168,6 +173,7 @@ export default function PerformanceCycles({
                       <th>Status</th>
                       <th>Due</th>
                       <th>Last reminder (Lagos)</th>
+                      <th>Employee acknowledgment</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -181,6 +187,13 @@ export default function PerformanceCycles({
                         </td>
                         <td>{row.due || "No due date"}</td>
                         <td>{row.last_reminded || "Never"}</td>
+                        <td>
+                          {row.acknowledged_at
+                            ? dateTime(row.acknowledged_at)
+                            : row.status === "Published"
+                              ? "Awaiting acknowledgment"
+                              : "Available after publication"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

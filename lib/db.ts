@@ -251,3 +251,6 @@ db.exec(`CREATE TABLE IF NOT EXISTS performance_reminders(record_id INTEGER NOT 
 // Reassignments preserve the exact response handed over and the reason for access changes.
 db.exec(`CREATE TABLE IF NOT EXISTS performance_reassignments(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),record_id INTEGER NOT NULL REFERENCES hr_records(id),from_reviewer_id INTEGER NOT NULL REFERENCES employees(id),to_reviewer_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),reason TEXT NOT NULL,snapshot TEXT NOT NULL,created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));
 CREATE INDEX IF NOT EXISTS performance_reassignments_record ON performance_reassignments(record_id,id);`);
+
+// Receipt evidence is separate from immutable published reviews.
+db.exec(`CREATE TABLE IF NOT EXISTS review_acknowledgments(record_id INTEGER PRIMARY KEY REFERENCES hr_records(id),company_id INTEGER NOT NULL REFERENCES companies(id),employee_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),review_hash TEXT NOT NULL,snapshot TEXT NOT NULL,created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));`);

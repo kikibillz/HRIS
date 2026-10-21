@@ -43,22 +43,24 @@ export function performanceCycles(user: User) {
       `SELECT c.*,COUNT(a.record_id) AS assigned,
     SUM(CASE WHEN r.status='Submitted' THEN 1 ELSE 0 END) AS submitted,
     SUM(CASE WHEN r.status='Published' THEN 1 ELSE 0 END) AS published,
+    SUM(CASE WHEN r.status='Published' AND ack.record_id IS NOT NULL THEN 1 ELSE 0 END) AS acknowledged,
+    SUM(CASE WHEN r.status='Published' AND ack.record_id IS NULL THEN 1 ELSE 0 END) AS awaiting_acknowledgment,
     SUM(CASE WHEN r.status='Draft' THEN 1 ELSE 0 END) AS pending,
     SUM(CASE WHEN c.status='Open' AND r.status='Draft' AND r.due<>'' AND r.due<? THEN 1 ELSE 0 END) AS overdue
     FROM performance_cycles c LEFT JOIN performance_assignments a ON a.cycle_id=c.id
-    LEFT JOIN hr_records r ON r.id=a.record_id WHERE c.company_id=? GROUP BY c.id ORDER BY c.id DESC`,
+    LEFT JOIN hr_records r ON r.id=a.record_id LEFT JOIN review_acknowledgments ack ON ack.record_id=r.id AND ack.company_id=c.company_id WHERE c.company_id=? GROUP BY c.id ORDER BY c.id DESC`,
     )
     .all(day, user.company_id);
   return cycles.map((cycle) => ({
     ...cycle,
     assignments: db
       .prepare(
-        `SELECT r.id,r.employee_id,r.reviewer_id,r.title,r.body,r.data,r.progress,r.status,r.due,e.name AS employee_name,v.name AS reviewer_name,
+        `SELECT ack.created AS acknowledged_at,r.id,r.employee_id,r.reviewer_id,r.title,r.body,r.data,r.progress,r.status,r.due,e.name AS employee_name,v.name AS reviewer_name,
     CASE WHEN r.status='Draft' AND r.due<>'' AND r.due<? AND c.status='Open' THEN 1 ELSE 0 END AS overdue,
     (SELECT MAX(day) FROM performance_reminders pr WHERE pr.record_id=r.id) AS last_reminded
     FROM performance_assignments a JOIN performance_cycles c ON c.id=a.cycle_id
     JOIN hr_records r ON r.id=a.record_id JOIN employees e ON e.id=r.employee_id
-    JOIN employees v ON v.id=r.reviewer_id WHERE a.cycle_id=? AND c.company_id=? ORDER BY e.name,r.id`,
+    JOIN employees v ON v.id=r.reviewer_id LEFT JOIN review_acknowledgments ack ON ack.record_id=r.id AND ack.company_id=c.company_id WHERE a.cycle_id=? AND c.company_id=? ORDER BY e.name,r.id`,
       )
       .all(day, Number(cycle.id), user.company_id)
       .map((record) => {

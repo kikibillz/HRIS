@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import PerformanceCycles from "./performance-cycles";
+import ReviewAcknowledgment from "./review-acknowledgment";
 import { modules, referenceKinds } from "@/lib/modules";
 import { api, type Context, type Row } from "./types";
 export default function RecordsPanel({
@@ -286,6 +287,13 @@ export default function RecordsPanel({
                       .quiz_question
                   }
                 </p>
+              )}
+              {kind === "reviews" && r.status === "Published" && (
+                <ReviewAcknowledgment
+                  row={r}
+                  context={context}
+                  onAcknowledged={load}
+                />
               )}
               {canEdit(r) && (
                 <button

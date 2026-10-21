@@ -55,6 +55,10 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    manager.expect(200,'/api/records/reviews',{'id':assignment['id'],'body':'Recovery handoff evidence','rating':4},method='PATCH')
    assignment=next(c for c in a.expect(200,'/api/performance')['cycles'] if c['id']==cycle)['assignments'][0]
    a.expect(200,'/api/performance',{'action':'reassign','cycle_id':cycle,'record_id':assignment['id'],'revision':assignment['revision'],'reviewer_id':aid,'reason':'Recovery reassignment fixture'})
+   a.expect(200,'/api/records/reviews',{'id':assignment['id'],'status':'Published'},method='PATCH')
+   published=next(r for r in employee.expect(200,'/api/records/reviews')['rows'] if r['id']==assignment['id'])
+   receipt_body={'record_id':published['id'],'review_hash':published['review_hash'],'confirmed':True}
+   original_receipt=employee.expect(200,'/api/review-acknowledgments',receipt_body)['acknowledgment']
    a.document(wid)
    # A synthetic frozen offer proves archives preserve letters while excluding/revoking links.
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:
@@ -75,6 +79,8 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    assert plain['tables']['performance_cycles'][0]['title']=='Recovery cycle'
    assert plain['tables']['performance_assignments'][0]['employee_id']==wid
    assert plain['tables']['performance_reminders'][0]['reviewer_id']==mid
+   assert plain['tables']['review_acknowledgments'][0]['review_hash']==published['review_hash']
+   assert json.loads(plain['tables']['review_acknowledgments'][0]['snapshot'])['body']=='Recovery handoff evidence'
    assert json.loads(plain['tables']['performance_reassignments'][0]['snapshot'])['body']=='Recovery handoff evidence'
    text=json.dumps(plain);assert 'backup-b@example.test' not in text and 'Backup Beta' not in text
    assert base64.b64decode(plain['tables']['documents'][0]['bytes']['data'])==b'Company A private document'
@@ -117,10 +123,13 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
     assert db.execute('SELECT title FROM performance_cycles WHERE id=?',(cycle,)).fetchone()[0]=='Recovery cycle'
     assert db.execute('SELECT employee_id FROM performance_assignments WHERE cycle_id=?',(cycle,)).fetchone()[0]==wid
     assert db.execute('SELECT reviewer_id FROM performance_reminders').fetchone()[0]==mid
+    assert db.execute('SELECT review_hash FROM review_acknowledgments').fetchone()[0]==published['review_hash']
     assert json.loads(db.execute('SELECT snapshot FROM performance_reassignments').fetchone()[0])['body']=='Recovery handoff evidence'
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert db.execute('SELECT role FROM employees WHERE id=?',(wid,)).fetchone()[0]=='Changed after backup'
    recovery_server=start(restored,3109,log);ready('http://127.0.0.1:3109');recovered_client=Client('http://127.0.0.1:3109');recovered_client.expect(200,'/api/auth',{'email':'backup-a@example.test','password':password});assert recovered_client.expect(200,'/api/operations')['company']['name']=='Backup Alpha';assert len(recovered_client.expect(200,'/api/payroll')['items'])==2
-   replay=recovered_client.expect(200,'/api/performance',{'action':'remind','cycle_id':cycle});assert replay['sent']==0 and replay['skipped']==1
+   replay=recovered_client.expect(200,'/api/performance',{'action':'remind','cycle_id':cycle});assert replay['sent']==0 and replay['skipped']==0
+   recovered_employee=Client('http://127.0.0.1:3109');recovered_employee.expect(200,'/api/auth',{'email':'backup-employee@example.test','password':password})
+   recovered_receipt=recovered_employee.expect(200,'/api/review-acknowledgments',receipt_body);assert recovered_receipt['already_acknowledged'] and recovered_receipt['acknowledgment']==original_receipt
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert not db.execute('PRAGMA foreign_key_check').fetchall()
    print(f'PASS: {checks} backup HTTP checks; company isolation, credential exclusion, authenticated encryption, tamper/wrong-key rejection, document preservation, same-count content comparison; consistent operator backup, no overwrite, credential revocation in recovered copy, unchanged live data and original-password login after recovery.')
   except Exception:

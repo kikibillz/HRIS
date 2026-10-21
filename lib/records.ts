@@ -1,3 +1,7 @@
+import {
+  publishedReviewHash,
+  reviewAcknowledgment,
+} from "./review-acknowledgments";
 import { assertHiringApproval } from "./recruiting";
 import { db } from "./db";
 import type { User } from "./auth";
@@ -52,7 +56,16 @@ export function listRecords(user: User, kind: string) {
       const data = JSON.parse(r.data);
       if (user.access !== "admin" && r.kind === "courses")
         delete data.quiz_answer;
-      return { ...r, data };
+      return {
+        ...r,
+        data,
+        ...(r.kind === "reviews" && r.status === "Published"
+          ? {
+              review_hash: publishedReviewHash(r),
+              acknowledgment: reviewAcknowledgment(r.id, user.company_id),
+            }
+          : {}),
+      };
     });
 }
 export function writeRecord(
