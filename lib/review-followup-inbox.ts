@@ -49,7 +49,10 @@ export function followupInbox(user: User) {
     })),
   };
 }
-export function assignReviewFollowup(user: User, b: Record<string, unknown>) {
+export function applyReviewFollowupAssignment(
+  user: User,
+  b: Record<string, unknown>,
+) {
   if (user.access !== "admin") throw Error("Administrator access required.");
   if (
     !Number.isSafeInteger(b.request_id) ||
@@ -71,88 +74,84 @@ export function assignReviewFollowup(user: User, b: Record<string, unknown>) {
     (!Number.isSafeInteger(b.owner_id) || Number(b.owner_id) < 1)
   )
     throw Error("Choose an HR owner or unassigned.");
+  const request = db
+    .prepare(
+      "SELECT f.id,f.status,f.record_id FROM review_followups f JOIN hr_records r ON r.id=f.record_id WHERE f.id=? AND f.company_id=? AND r.company_id=? AND r.status='Published' AND r.kind='reviews'",
+    )
+    .get(Number(b.request_id), user.company_id, user.company_id);
+  if (!request) throw Error("Follow-up not found.");
+  if (request.status !== "Open")
+    throw Error("Resolved follow-ups cannot be reassigned.");
+  const previous = db
+    .prepare(
+      "SELECT owner_id,due,version FROM review_followup_assignments WHERE request_id=? AND company_id=?",
+    )
+    .get(Number(request.id), user.company_id) ?? {
+    owner_id: null,
+    due: "",
+    version: 0,
+  };
+  if (previous.version !== b.expected_version)
+    throw Error(
+      "The assignment changed. Refresh the inbox and review it again.",
+    );
+  const account =
+    owner === null
+      ? null
+      : db
+          .prepare(
+            "SELECT ac.employee_id,e.name FROM accounts ac JOIN employees e ON e.id=ac.employee_id JOIN company_employees ce ON ce.employee_id=e.id WHERE ac.id=? AND ce.company_id=? AND ac.access='admin' AND e.status='Active'",
+          )
+          .get(owner, user.company_id);
+  if (owner !== null && !account)
+    throw Error("Choose an active HR administrator in this company.");
+  if (previous.owner_id === owner && previous.due === due) {
+    return { id: Number(request.id), unchanged: true };
+  }
+  const before = {
+    ...previous,
+    owner_name: previous.owner_id
+      ? (db
+          .prepare(
+            "SELECT e.name FROM accounts ac JOIN employees e ON e.id=ac.employee_id WHERE ac.id=?",
+          )
+          .get(Number(previous.owner_id))?.name ?? null)
+      : null,
+  };
+  const next = {
+    owner_name: account?.name ?? null,
+    owner_id: owner,
+    due,
+    version: Number(previous.version) + 1,
+  };
+  db.prepare(
+    "INSERT INTO review_followup_assignments(request_id,company_id,owner_id,due,version,updated_by) VALUES (?,?,?,?,?,?) ON CONFLICT(request_id) DO UPDATE SET owner_id=excluded.owner_id,due=excluded.due,version=excluded.version,updated_by=excluded.updated_by,updated=strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+  ).run(Number(request.id), user.company_id, owner, due, next.version, user.id);
+  db.prepare(
+    "INSERT INTO review_followup_assignment_events(request_id,company_id,actor_id,reason,before_snapshot,after_snapshot) VALUES (?,?,?,?,?,?)",
+  ).run(
+    Number(request.id),
+    user.company_id,
+    user.id,
+    reason,
+    JSON.stringify(before),
+    JSON.stringify(next),
+  );
+  audit(user, "Review follow-up assignment changed", String(request.id));
+  if (account && owner !== previous.owner_id)
+    notify(
+      Number(account.employee_id),
+      "Review follow-up assigned",
+      `Follow-up #${request.id} · Review #${request.record_id}. Open Review follow-up inbox to review the employee's request.`,
+    );
+  return { id: Number(request.id), unchanged: false };
+}
+export function assignReviewFollowup(user: User, b: Record<string, unknown>) {
   db.exec("BEGIN IMMEDIATE");
   try {
-    const request = db
-      .prepare(
-        "SELECT f.id,f.status,f.record_id FROM review_followups f JOIN hr_records r ON r.id=f.record_id WHERE f.id=? AND f.company_id=? AND r.company_id=? AND r.status='Published' AND r.kind='reviews'",
-      )
-      .get(Number(b.request_id), user.company_id, user.company_id);
-    if (!request) throw Error("Follow-up not found.");
-    if (request.status !== "Open")
-      throw Error("Resolved follow-ups cannot be reassigned.");
-    const previous = db
-      .prepare(
-        "SELECT owner_id,due,version FROM review_followup_assignments WHERE request_id=? AND company_id=?",
-      )
-      .get(Number(request.id), user.company_id) ?? {
-      owner_id: null,
-      due: "",
-      version: 0,
-    };
-    if (previous.version !== b.expected_version)
-      throw Error(
-        "The assignment changed. Refresh the inbox and review it again.",
-      );
-    const account =
-      owner === null
-        ? null
-        : db
-            .prepare(
-              "SELECT ac.employee_id,e.name FROM accounts ac JOIN employees e ON e.id=ac.employee_id JOIN company_employees ce ON ce.employee_id=e.id WHERE ac.id=? AND ce.company_id=? AND ac.access='admin' AND e.status='Active'",
-            )
-            .get(owner, user.company_id);
-    if (owner !== null && !account)
-      throw Error("Choose an active HR administrator in this company.");
-    if (previous.owner_id === owner && previous.due === due) {
-      db.exec("COMMIT");
-      return { id: Number(request.id), unchanged: true };
-    }
-    const before = {
-      ...previous,
-      owner_name: previous.owner_id
-        ? (db
-            .prepare(
-              "SELECT e.name FROM accounts ac JOIN employees e ON e.id=ac.employee_id WHERE ac.id=?",
-            )
-            .get(Number(previous.owner_id))?.name ?? null)
-        : null,
-    };
-    const next = {
-      owner_name: account?.name ?? null,
-      owner_id: owner,
-      due,
-      version: Number(previous.version) + 1,
-    };
-    db.prepare(
-      "INSERT INTO review_followup_assignments(request_id,company_id,owner_id,due,version,updated_by) VALUES (?,?,?,?,?,?) ON CONFLICT(request_id) DO UPDATE SET owner_id=excluded.owner_id,due=excluded.due,version=excluded.version,updated_by=excluded.updated_by,updated=strftime('%Y-%m-%dT%H:%M:%fZ','now')",
-    ).run(
-      Number(request.id),
-      user.company_id,
-      owner,
-      due,
-      next.version,
-      user.id,
-    );
-    db.prepare(
-      "INSERT INTO review_followup_assignment_events(request_id,company_id,actor_id,reason,before_snapshot,after_snapshot) VALUES (?,?,?,?,?,?)",
-    ).run(
-      Number(request.id),
-      user.company_id,
-      user.id,
-      reason,
-      JSON.stringify(before),
-      JSON.stringify(next),
-    );
-    audit(user, "Review follow-up assignment changed", String(request.id));
-    if (account && owner !== previous.owner_id)
-      notify(
-        Number(account.employee_id),
-        "Review follow-up assigned",
-        `Follow-up #${request.id} · Review #${request.record_id}. Open Review follow-up inbox to review the employee's request.`,
-      );
+    const result = applyReviewFollowupAssignment(user, b);
     db.exec("COMMIT");
-    return { id: Number(request.id), unchanged: false };
+    return result;
   } catch (e) {
     db.exec("ROLLBACK");
     throw e;

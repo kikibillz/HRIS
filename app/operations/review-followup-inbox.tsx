@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import ReviewFollowupBulk from "./review-followup-bulk";
 import { api, dateTime, type Context } from "./types";
 type WorkloadSummary = {
   id: number;
@@ -260,6 +261,18 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
         </p>
       )}
       {message && <p role="status">{message}</p>}
+      <ReviewFollowupBulk
+        key={JSON.stringify([
+          status,
+          ownerFilter,
+          overdueOnly,
+          escalationsOnly,
+          search,
+        ])}
+        rows={filtered}
+        owners={owners}
+        onSaved={load}
+      />
       {filtered.map((row) => (
         <article className="panel ops-form" key={row.id}>
           <h2>

@@ -67,7 +67,10 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    followup_id=employee.expect(200,'/api/review-followups',followup_body)['id']
    resolution_body={'action':'resolve','request_id':followup_id,'note':'Recovery HR response'}
    a.expect(200,'/api/review-followups',{'action':'escalate','request_id':followup_id,'expected_version':0,'reason':'Recovery escalation evidence'})
-   a.expect(200,'/api/review-followups',{'action':'assign','request_id':followup_id,'expected_version':0,'owner_id':context['user']['id'],'due':'2000-01-01','reason':'Recovery ownership evidence'})
+   bulk_body={'action':'preview','requests':[{'request_id':followup_id,'expected_version':0}],'owner_id':context['user']['id'],'due':'2000-01-01','reason':'Recovery ownership evidence'}
+   bulk_preview=a.expect(200,'/api/review-followup-bulk',bulk_body)
+   bulk_commit={**bulk_body,'action':'commit','preview_hash':bulk_preview['preview_hash']}
+   original_batch=a.expect(200,'/api/review-followup-bulk',bulk_commit)
    a.expect(200,'/api/review-followups',{'action':'remind_owner','request_id':followup_id,'expected_version':1})
    a.expect(200,'/api/review-followups',resolution_body)
    workload_id=a.expect(200,'/api/review-followup-summaries',{})['id']
@@ -101,6 +104,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    assert plain['tables']['review_followup_assignment_events'][0]['reason']=='Recovery ownership evidence'
    assert len(plain['tables']['review_followup_alerts'])==2 and len(plain['tables']['review_followup_alert_deliveries'])==2
    assert plain['tables']['review_followup_summaries'][0]['content_hash']==saved_workload['content_hash']
+   assert plain['tables']['review_followup_batches'][0]['preview_hash']==bulk_preview['preview_hash']
    assert json.loads(plain['tables']['review_acknowledgments'][0]['snapshot'])['body']=='Recovery handoff evidence'
    assert json.loads(plain['tables']['performance_reassignments'][0]['snapshot'])['body']=='Recovery handoff evidence'
    text=json.dumps(plain);assert 'backup-b@example.test' not in text and 'Backup Beta' not in text
@@ -154,6 +158,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
     assert db.execute('SELECT COUNT(*) FROM review_followup_alerts').fetchone()[0]==2
     assert db.execute('SELECT COUNT(*) FROM review_followup_alert_deliveries').fetchone()[0]==2
     assert db.execute('SELECT content_hash FROM review_followup_summaries').fetchone()[0]==saved_workload['content_hash']
+    assert db.execute('SELECT preview_hash FROM review_followup_batches').fetchone()[0]==bulk_preview['preview_hash']
     assert json.loads(db.execute('SELECT snapshot FROM performance_reassignments').fetchone()[0])['body']=='Recovery handoff evidence'
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert db.execute('SELECT role FROM employees WHERE id=?',(wid,)).fetchone()[0]=='Changed after backup'
    recovery_server=start(restored,3109,log);ready('http://127.0.0.1:3109');recovered_client=Client('http://127.0.0.1:3109');recovered_client.expect(200,'/api/auth',{'email':'backup-a@example.test','password':password});assert recovered_client.expect(200,'/api/operations')['company']['name']=='Backup Alpha';assert len(recovered_client.expect(200,'/api/payroll')['items'])==2
@@ -166,6 +171,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    recovered_inbox=recovered_client.expect(200,'/api/review-followup-inbox')['requests'][0];assert recovered_inbox['due']=='2000-01-01' and recovered_inbox['history'][0]['reason']=='Recovery ownership evidence'
    assert recovered_client.expect(200,'/api/review-followup-summaries?id='+str(workload_id))==saved_workload
    assert recovered_client.expect(200,'/api/review-followup-summaries',{})['reused']
+   restored_batch=recovered_client.expect(200,'/api/review-followup-bulk',bulk_commit);assert restored_batch['reused'] and restored_batch['batch_id']==original_batch['batch_id']
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert not db.execute('PRAGMA foreign_key_check').fetchall()
    print(f'PASS: {checks} backup HTTP checks; company isolation, credential exclusion, authenticated encryption, tamper/wrong-key rejection, document preservation, same-count content comparison; consistent operator backup, no overwrite, credential revocation in recovered copy, unchanged live data and original-password login after recovery.')
   except Exception:

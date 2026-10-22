@@ -638,6 +638,48 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
     assert db.execute('SELECT * FROM hr_records ORDER BY id').fetchall()==before_workload_reviews
     assert db.execute('SELECT * FROM review_acknowledgments ORDER BY record_id').fetchall()==before_workload_receipts
     assert db.execute("SELECT COUNT(*) FROM audit_log WHERE company_id=? AND action='HR follow-up workload summary saved'",(ca['user']['company_id'],)).fetchone()[0]==3
+   # Bulk assignments preview exact changes and atomically commit or roll back all requests.
+   bulk_url='/api/review-followup-bulk'
+   bulk_a=worker.expect(200,'/api/review-followups',{**question,'request_key':secrets.token_hex(16),'question':'First bulk fixture'})['id']
+   bulk_b=worker.expect(200,'/api/review-followups',{**question,'record_id':rid,'review_hash':closed_row['review_hash'],'request_key':secrets.token_hex(16),'question':'Second bulk fixture'})['id']
+   bulk={'action':'preview','requests':[{'request_id':bulk_a,'expected_version':0},{'request_id':bulk_b,'expected_version':0}],'owner_id':ca['user']['id'],'due':'2026-12-31','reason':'Reviewed bulk ownership fixture'}
+   guest.expect(401,bulk_url,bulk)
+   for client in [worker,manager,peer]:client.expect(403,bulk_url,bulk)
+   b.expect(400,bulk_url,bulk)
+   a.expect(403,bulk_url,bulk,origin='https://untrusted.example')
+   for bad in [{'requests':[]},{'requests':bulk['requests']*101},{'requests':[bulk['requests'][0]]*2},{'requests':[{'request_id':bulk_a,'expected_version':1}]},{'requests':[{'request_id':qid,'expected_version':0}]},{'owner_id':manager_account},{'owner_id':cb['user']['id']},{'due':'2026-02-30'},{'reason':''},{'reason':'x'*2001}]:a.expect(400,bulk_url,{**bulk,**bad})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    before_bulk_assignments=db.execute('SELECT * FROM review_followup_assignments ORDER BY request_id').fetchall()
+    before_bulk_events=db.execute('SELECT * FROM review_followup_assignment_events ORDER BY id').fetchall()
+    before_bulk_reviews=db.execute('SELECT * FROM hr_records ORDER BY id').fetchall()
+   preview=a.expect(200,bulk_url,bulk);assert preview['changed']==2 and preview['unchanged']==0 and len(preview['plan'])==2
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM review_followup_assignments ORDER BY request_id').fetchall()==before_bulk_assignments
+    assert db.execute('SELECT * FROM review_followup_assignment_events ORDER BY id').fetchall()==before_bulk_events
+   commit={**bulk,'action':'commit','preview_hash':preview['preview_hash']}
+   a.expect(400,bulk_url,{**commit,'preview_hash':'bad'})
+   a.expect(400,bulk_url,{**commit,'reason':'Changed reason after preview'})
+   a.expect(400,bulk_url,{**commit,'due':'2027-01-01'})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("CREATE TRIGGER reject_bulk_save BEFORE INSERT ON audit_log WHEN NEW.action='Bulk review follow-up assignment completed' BEGIN SELECT RAISE(ABORT,'fixture batch failure'); END")
+   a.expect(400,bulk_url,commit)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM review_followup_assignments ORDER BY request_id').fetchall()==before_bulk_assignments
+    assert db.execute('SELECT * FROM review_followup_assignment_events ORDER BY id').fetchall()==before_bulk_events
+    assert db.execute('SELECT COUNT(*) FROM review_followup_batches').fetchone()[0]==0
+    db.execute('DROP TRIGGER reject_bulk_save')
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:bulk_results=list(pool.map(lambda _:a.expect(200,bulk_url,commit),range(2)))
+   assert len({r['batch_id'] for r in bulk_results})==1 and sum(r['reused'] for r in bulk_results)==1 and all(r['changed']==2 for r in bulk_results)
+   a.expect(400,bulk_url,{**commit,'owner_id':None})
+   assert a.expect(200,bulk_url,commit)['reused']
+   rows={r['id']:r for r in a.expect(200,'/api/review-followup-inbox')['requests']};assert all(rows[rid]['version']==1 and rows[rid]['owner_id']==ca['user']['id'] for rid in [bulk_a,bulk_b])
+   next_bulk={**bulk,'requests':[{'request_id':bulk_a,'expected_version':1},{'request_id':bulk_b,'expected_version':1}],'due':'2027-01-01'}
+   next_preview=a.expect(200,bulk_url,next_bulk)
+   a.expect(200,'/api/review-followups',{'action':'assign','request_id':bulk_b,'expected_version':1,'owner_id':ca['user']['id'],'due':'2027-02-01','reason':'Another HR edit after bulk preview'})
+   a.expect(400,bulk_url,{**next_bulk,'action':'commit','preview_hash':next_preview['preview_hash']})
+   rows={r['id']:r for r in a.expect(200,'/api/review-followup-inbox')['requests']};assert rows[bulk_a]['due']=='2026-12-31' and rows[bulk_a]['version']==1 and rows[bulk_b]['due']=='2027-02-01'
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM hr_records ORDER BY id').fetchall()==before_bulk_reviews
+    assert db.execute('SELECT COUNT(*) FROM review_followup_batches').fetchone()[0]==1
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})

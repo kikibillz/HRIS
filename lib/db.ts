@@ -276,3 +276,6 @@ CREATE TABLE IF NOT EXISTS review_followup_alert_deliveries(alert_id INTEGER NOT
 
 // Workload snapshots freeze HR coordination metadata without private question/response text.
 db.exec(`CREATE TABLE IF NOT EXISTS review_followup_summaries(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),content_hash TEXT NOT NULL,snapshot TEXT NOT NULL,created_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(company_id,content_hash));`);
+
+// Completed bulk assignments preserve the reviewed plan and safe retry result.
+db.exec(`CREATE TABLE IF NOT EXISTS review_followup_batches(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),preview_hash TEXT NOT NULL,input_json TEXT NOT NULL,snapshot TEXT NOT NULL,result_json TEXT NOT NULL,created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(company_id,preview_hash));`);
