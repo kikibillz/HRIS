@@ -598,6 +598,46 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    a.expect(400,'/api/review-followups',{**escalation,'expected_version':3})
    assert resolved_inbox['needs_escalation']==0 and len(resolved_inbox['alerts'])==3
    assert resolved_inbox['status']=='Resolved' and resolved_inbox['overdue']==0 and len(resolved_inbox['history'])==3 and resolved_inbox['resolution_note']=='Inbox resolution fixture'
+   # Saved workload snapshots preserve counts while excluding private correspondence.
+   workload_url='/api/review-followup-summaries'
+   guest.expect(401,workload_url);guest.expect(401,workload_url,{})
+   for client in [worker,manager,peer]:client.expect(403,workload_url);client.expect(403,workload_url,{})
+   a.expect(403,workload_url,{},origin='https://untrusted.example')
+   for invalid in ['','0','-1','bad','1.5','9007199254740992']:a.expect(400,workload_url+'?id='+invalid)
+   assert a.expect(200,workload_url)['summaries']==[]
+   workload_request=worker.expect(200,'/api/review-followups',{**question,'request_key':secrets.token_hex(16),'question':'Private workload fixture question'})['id']
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    before_workload_reviews=db.execute('SELECT * FROM hr_records ORDER BY id').fetchall()
+    before_workload_receipts=db.execute('SELECT * FROM review_acknowledgments ORDER BY record_id').fetchall()
+    db.execute("CREATE TRIGGER reject_workload_summary BEFORE INSERT ON audit_log WHEN NEW.action='HR follow-up workload summary saved' BEGIN SELECT RAISE(ABORT,'fixture summary failure'); END")
+   a.expect(400,workload_url,{})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT COUNT(*) FROM review_followup_summaries').fetchone()[0]==0
+    db.execute('DROP TRIGGER reject_workload_summary')
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:workloads=list(pool.map(lambda _:a.expect(200,workload_url,{}),range(2)))
+   assert len({r['id'] for r in workloads})==1 and sum(r['reused'] for r in workloads)==1
+   workload_id=workloads[0]['id'];saved_workload=a.expect(200,workload_url+'?id='+str(workload_id))
+   snapshot=saved_workload['snapshot'];totals=snapshot['totals']
+   assert totals['total']==4 and totals['open']==1 and totals['resolved']==3 and totals['unassigned']==1 and totals['needs_hr_owner']==1 and totals['overdue']==0 and totals['without_due']==1
+   assert snapshot['timezone']=='Africa/Lagos' and snapshot['scope']=='All company review follow-ups'
+   assert sum(owner['open'] for owner in snapshot['by_owner'])==totals['open'] and sum(owner['resolved'] for owner in snapshot['by_owner'])==totals['resolved']
+   assert hashlib.sha256(json.dumps(snapshot,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()==saved_workload['content_hash']
+   assert not any(key in json.dumps(saved_workload) for key in ['"question"','"resolution_note"','"note"','"reason"','"body"','"rating"','"email"','"password_hash"','Private workload fixture question'])
+   b.expect(404,workload_url+'?id='+str(workload_id));a.expect(404,workload_url+'?id=999999')
+   beta_workload=b.expect(200,workload_url,{})['id'];empty_workload=b.expect(200,workload_url+'?id='+str(beta_workload))['snapshot'];assert empty_workload['totals']['total']==0 and empty_workload['by_owner']==[]
+   a.expect(404,workload_url+'?id='+str(beta_workload))
+   a.expect(200,'/api/review-followups',{'action':'assign','request_id':workload_request,'expected_version':0,'owner_id':ca['user']['id'],'due':'2000-01-01','reason':'Workload ownership fixture'})
+   assigned_workload=a.expect(200,workload_url,{});assert not assigned_workload['reused'] and assigned_workload['id']!=workload_id
+   assigned_totals=a.expect(200,workload_url+'?id='+str(assigned_workload['id']))['snapshot']['totals'];assert assigned_totals['overdue']==1 and assigned_totals['needs_hr_owner']==0
+   assert a.expect(200,workload_url+'?id='+str(workload_id))==saved_workload
+   a.expect(200,'/api/review-followups',{'action':'resolve','request_id':workload_request,'note':'Private workload fixture response'})
+   resolved_workload=a.expect(200,workload_url,{});assert not resolved_workload['reused']
+   resolved_totals=a.expect(200,workload_url+'?id='+str(resolved_workload['id']))['snapshot']['totals'];assert resolved_totals['open']==0 and resolved_totals['resolved']==4 and resolved_totals['overdue']==0
+   assert a.expect(200,workload_url,{})['reused'] and len(a.expect(200,workload_url)['summaries'])==3
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM hr_records ORDER BY id').fetchall()==before_workload_reviews
+    assert db.execute('SELECT * FROM review_acknowledgments ORDER BY record_id').fetchall()==before_workload_receipts
+    assert db.execute("SELECT COUNT(*) FROM audit_log WHERE company_id=? AND action='HR follow-up workload summary saved'",(ca['user']['company_id'],)).fetchone()[0]==3
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})

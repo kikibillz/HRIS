@@ -1,6 +1,22 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api, dateTime, type Context } from "./types";
+type WorkloadSummary = {
+  id: number;
+  created: string;
+  as_of_day: string;
+  totals: {
+    total: number;
+    open: number;
+    resolved: number;
+    overdue: number;
+    unassigned: number;
+    unavailable_owner: number;
+    needs_hr_owner: number;
+    due_today: number;
+    without_due: number;
+  };
+};
 type Item = {
   id: number;
   record_id: number;
@@ -36,6 +52,7 @@ type Item = {
 };
 export default function ReviewFollowupInbox({ context }: { context: Context }) {
   const [requests, setRequests] = useState<Item[]>([]),
+    [summaries, setSummaries] = useState<WorkloadSummary[]>([]),
     [owners, setOwners] = useState<{ id: number; name: string }[]>([]),
     [status, setStatus] = useState("Open"),
     [ownerFilter, setOwnerFilter] = useState("all"),
@@ -49,6 +66,7 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
     const data = await api("review-followup-inbox");
     setRequests(data.requests);
     setOwners(data.owners);
+    setSummaries(data.summaries);
   }
   useEffect(() => {
     let active = true;
@@ -57,6 +75,7 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
         if (active) {
           setRequests(data.requests);
           setOwners(data.owners);
+          setSummaries(data.summaries);
         }
       })
       .catch((e) => {
@@ -86,6 +105,26 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
       setBusy(false);
     }
   }
+  async function saveSummary() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await api("review-followup-summaries", {});
+      await load();
+      setMessage(
+        result.reused
+          ? "The current workload summary is already saved."
+          : "Workload summary saved.",
+      );
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Unable to save workload summary.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
   const filtered = requests.filter(
     (row) =>
       (status === "All" || row.status === status) &&
@@ -101,6 +140,41 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
   );
   return (
     <>
+      <section className="panel ops-form">
+        <h2>Saved workload summaries</h2>
+        <p>
+          Save all company review follow-ups, regardless of the current inbox
+          filters. Each dated snapshot preserves ownership, due dates and
+          delivery counts. Private question and HR response text are excluded.
+        </p>
+        <button
+          className="primary"
+          disabled={busy}
+          onClick={() => void saveSummary()}
+        >
+          Save workload summary
+        </button>
+        <details>
+          <summary>Workload summary history</summary>
+          {summaries.map((summary) => (
+            <article key={summary.id}>
+              <p>
+                Summary #{summary.id} · {dateTime(summary.created)} · As of{" "}
+                {summary.as_of_day} (Lagos)
+              </p>
+              <p>
+                {summary.totals.open} open · {summary.totals.overdue} overdue ·{" "}
+                {summary.totals.needs_hr_owner} need an HR owner ·{" "}
+                {summary.totals.resolved} resolved
+              </p>
+              <a href={`/api/review-followup-summaries?id=${summary.id}`}>
+                Download workload summary #{summary.id}
+              </a>
+            </article>
+          ))}
+          {!summaries.length && <p>No workload summaries saved yet.</p>}
+        </details>
+      </section>
       <div className="ops-toolbar">
         <label>
           Request status

@@ -70,6 +70,8 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    a.expect(200,'/api/review-followups',{'action':'assign','request_id':followup_id,'expected_version':0,'owner_id':context['user']['id'],'due':'2000-01-01','reason':'Recovery ownership evidence'})
    a.expect(200,'/api/review-followups',{'action':'remind_owner','request_id':followup_id,'expected_version':1})
    a.expect(200,'/api/review-followups',resolution_body)
+   workload_id=a.expect(200,'/api/review-followup-summaries',{})['id']
+   saved_workload=a.expect(200,'/api/review-followup-summaries?id='+str(workload_id))
    a.document(wid)
    # A synthetic frozen offer proves archives preserve letters while excluding/revoking links.
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:
@@ -98,6 +100,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    assert plain['tables']['review_followup_assignments'][0]['due']=='2000-01-01'
    assert plain['tables']['review_followup_assignment_events'][0]['reason']=='Recovery ownership evidence'
    assert len(plain['tables']['review_followup_alerts'])==2 and len(plain['tables']['review_followup_alert_deliveries'])==2
+   assert plain['tables']['review_followup_summaries'][0]['content_hash']==saved_workload['content_hash']
    assert json.loads(plain['tables']['review_acknowledgments'][0]['snapshot'])['body']=='Recovery handoff evidence'
    assert json.loads(plain['tables']['performance_reassignments'][0]['snapshot'])['body']=='Recovery handoff evidence'
    text=json.dumps(plain);assert 'backup-b@example.test' not in text and 'Backup Beta' not in text
@@ -150,6 +153,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
     assert db.execute('SELECT reason FROM review_followup_assignment_events').fetchone()[0]=='Recovery ownership evidence'
     assert db.execute('SELECT COUNT(*) FROM review_followup_alerts').fetchone()[0]==2
     assert db.execute('SELECT COUNT(*) FROM review_followup_alert_deliveries').fetchone()[0]==2
+    assert db.execute('SELECT content_hash FROM review_followup_summaries').fetchone()[0]==saved_workload['content_hash']
     assert json.loads(db.execute('SELECT snapshot FROM performance_reassignments').fetchone()[0])['body']=='Recovery handoff evidence'
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert db.execute('SELECT role FROM employees WHERE id=?',(wid,)).fetchone()[0]=='Changed after backup'
    recovery_server=start(restored,3109,log);ready('http://127.0.0.1:3109');recovered_client=Client('http://127.0.0.1:3109');recovered_client.expect(200,'/api/auth',{'email':'backup-a@example.test','password':password});assert recovered_client.expect(200,'/api/operations')['company']['name']=='Backup Alpha';assert len(recovered_client.expect(200,'/api/payroll')['items'])==2
@@ -160,6 +164,8 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    assert recovered_employee.expect(200,'/api/review-followups',followup_body)['reused']
    assert recovered_client.expect(200,'/api/review-followups',resolution_body)['reused']
    recovered_inbox=recovered_client.expect(200,'/api/review-followup-inbox')['requests'][0];assert recovered_inbox['due']=='2000-01-01' and recovered_inbox['history'][0]['reason']=='Recovery ownership evidence'
+   assert recovered_client.expect(200,'/api/review-followup-summaries?id='+str(workload_id))==saved_workload
+   assert recovered_client.expect(200,'/api/review-followup-summaries',{})['reused']
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert not db.execute('PRAGMA foreign_key_check').fetchall()
    print(f'PASS: {checks} backup HTTP checks; company isolation, credential exclusion, authenticated encryption, tamper/wrong-key rejection, document preservation, same-count content comparison; consistent operator backup, no overwrite, credential revocation in recovered copy, unchanged live data and original-password login after recovery.')
   except Exception:

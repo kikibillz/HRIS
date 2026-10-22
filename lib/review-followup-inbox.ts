@@ -1,3 +1,4 @@
+import { followupWorkloadSummaries } from "./review-followup-summaries";
 import { db } from "./db";
 import type { User } from "./auth";
 import { audit, notify } from "./tenant";
@@ -27,6 +28,7 @@ export function followupInbox(user: User) {
     .all(onboardingDay(), user.company_id);
   return {
     owners,
+    summaries: followupWorkloadSummaries(user),
     requests: requests.map((request) => ({
       ...request,
       needs_escalation:

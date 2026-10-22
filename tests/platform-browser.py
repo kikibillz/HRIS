@@ -210,6 +210,16 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
     expect(admin.get_by_role('heading',name='Review follow-up inbox',exact=True)).to_be_visible()
     inbox_request=admin.locator('article.panel.ops-form').filter(has_text='Please clarify the evidence behind my review rating.')
     expect(inbox_request).to_be_visible()
+    admin.get_by_label('Search follow-ups',exact=True).fill('summary-filter-no-match');expect(inbox_request).to_have_count(0)
+    admin.get_by_role('button',name='Save workload summary',exact=True).click();expect(admin.get_by_role('status').filter(has_text='Workload summary saved.')).to_be_visible()
+    admin.get_by_role('button',name='Save workload summary',exact=True).click();expect(admin.get_by_role('status').filter(has_text='The current workload summary is already saved.')).to_be_visible()
+    admin.get_by_text('Workload summary history',exact=True).click()
+    with admin.expect_download() as workload_download:admin.get_by_role('link',name=re.compile(r'Download workload summary #')).click()
+    workload_file=workload_download.value;assert workload_file.suggested_filename.endswith('.json') and workload_file.failure() is None
+    with open(workload_file.path()) as source:frozen_workload=json.load(source)
+    assert frozen_workload['snapshot']['totals']['open']==1 and frozen_workload['snapshot']['totals']['unassigned']==1
+    assert 'question' not in frozen_workload['snapshot']['requests'][0] and 'resolution_note' not in frozen_workload['snapshot']['requests'][0]
+    admin.get_by_label('Search follow-ups',exact=True).fill('Browser Worker')
     admin.get_by_role('checkbox',name='Needs HR owner',exact=True).check();expect(inbox_request).to_be_visible()
     inbox_request.get_by_label('Escalation reason',exact=True).fill('Arrange a replacement HR owner for this question.')
     inbox_request.get_by_role('button',name='Escalate to HR',exact=True).click();expect(admin.get_by_role('status').filter(has_text='1 HR notifications sent.')).to_be_visible()
@@ -231,11 +241,15 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
     inbox_request.get_by_role('button',name='Record response and resolve',exact=True).click();expect(admin.get_by_text('No follow-ups match these filters.',exact=True)).to_be_visible()
     admin.get_by_role('checkbox',name='Overdue only',exact=True).uncheck();admin.get_by_label('Request status',exact=True).select_option('Resolved')
     expect(inbox_request).to_contain_text('We reviewed the examples together and recorded your question.');expect(inbox_request.get_by_role('button',name='Record response and resolve',exact=True)).to_have_count(0)
+    admin.get_by_role('button',name='Save workload summary',exact=True).click();expect(admin.get_by_role('status').filter(has_text='Workload summary saved.')).to_be_visible()
+    expect(admin.get_by_role('link',name=re.compile(r'Download workload summary #'))).to_have_count(2)
+    assert admin.request.get(base+'/api/review-followup-summaries?id='+str(frozen_workload['id'])).json()==frozen_workload
+    assert staff.request.get(base+'/api/review-followup-summaries?id='+str(frozen_workload['id'])).status==403
     assert admin.evaluate('document.documentElement.scrollWidth <= innerWidth')
     staff.reload();expect(staff.get_by_text('We reviewed the examples together and recorded your question.',exact=True)).to_be_visible()
     expect(staff.get_by_role('button',name='Request HR follow-up',exact=True)).to_be_visible();expect(staff.get_by_role('status').filter(has_text='Acknowledged by employee')).to_be_visible();assert staff.evaluate('document.documentElement.scrollWidth <= innerWidth')
     assert admin.request.get(base+'/api/performance-summaries?id='+str(saved_summary['id'])).json()==saved_summary
-    assert not errors,errors;browser.close();print('PASS: browser company signup, validated staff import, review cycle creation/bulk assignment/duplicate protection/manual reminders/daily delivery limits/progress/publication/closure/reviewer reassignment/preserved response history/employee acknowledgment/receipt reminders/frozen completion summaries/HR receipt tracking/private employee questions/final HR resolutions/HR inbox/owner and due-date history/overdue filters/manual owner reminders/escalation queue and mobile layout, payroll calculation/approval, invitations, mobile payslips, clock in/out, leave request, and learning knowledge check; reviewed bonus inputs, opening balances, immutable external review, locked periods, YTD totals and mobile adjusted payslips, cumulative preview, calculation/approval and own mobile tax working; salary/authority receipt entry, correction history and salary-paid reconciliation; export identifier review, bank ZIP download and statutory pack generation; encrypted company download, read-only archive comparison and employee backup denial; no browser errors.')
+    assert not errors,errors;browser.close();print('PASS: browser company signup, validated staff import, review cycle creation/bulk assignment/duplicate protection/manual reminders/daily delivery limits/progress/publication/closure/reviewer reassignment/preserved response history/employee acknowledgment/receipt reminders/frozen completion summaries/HR receipt tracking/private employee questions/final HR resolutions/HR inbox/owner and due-date history/overdue filters/manual owner reminders/escalation queue/private versioned workload summaries and mobile layout, payroll calculation/approval, invitations, mobile payslips, clock in/out, leave request, and learning knowledge check; reviewed bonus inputs, opening balances, immutable external review, locked periods, YTD totals and mobile adjusted payslips, cumulative preview, calculation/approval and own mobile tax working; salary/authority receipt entry, correction history and salary-paid reconciliation; export identifier review, bank ZIP download and statutory pack generation; encrypted company download, read-only archive comparison and employee backup denial; no browser errors.')
   except Exception:
    log.seek(0);print(log.read()[-6000:]);raise
   finally:server.terminate();server.wait(timeout=10)
