@@ -27,7 +27,12 @@ export async function POST(request: Request) {
   if (user instanceof Response) return user;
   try {
     const body = await request.json();
-    if (["resolve", "assign"].includes(body?.action) && user.access !== "admin")
+    if (
+      ["resolve", "assign", "remind_owner", "escalate"].includes(
+        body?.action,
+      ) &&
+      user.access !== "admin"
+    )
       return Response.json(
         { error: "Administrator access required." },
         { status: 403 },

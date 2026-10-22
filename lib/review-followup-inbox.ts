@@ -16,7 +16,7 @@ export function followupInbox(user: User) {
       `SELECT f.id,f.record_id,f.employee_id,e.name AS employee_name,r.title AS review_title,f.question,f.status,f.created,
     resolution.note AS resolution_note,resolution.created AS resolved_at,
     assignment.owner_id,COALESCE(assignment.due,'') AS due,COALESCE(assignment.version,0) AS version,owner.name AS owner_name,
-    CASE WHEN assignment.owner_id IS NOT NULL AND (ac.access<>'admin' OR owner.status<>'Active') THEN 1 ELSE 0 END AS owner_unavailable,
+    CASE WHEN assignment.owner_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM accounts active_account JOIN employees active_employee ON active_employee.id=active_account.employee_id JOIN company_employees active_company ON active_company.employee_id=active_employee.id WHERE active_account.id=assignment.owner_id AND active_company.company_id=f.company_id AND active_account.access='admin' AND active_employee.status='Active') THEN 1 ELSE 0 END AS owner_unavailable,
     CASE WHEN f.status='Open' AND assignment.due<>'' AND assignment.due<? THEN 1 ELSE 0 END AS overdue
     FROM review_followups f JOIN hr_records r ON r.id=f.record_id AND r.company_id=f.company_id JOIN employees e ON e.id=f.employee_id
     LEFT JOIN review_followup_resolutions resolution ON resolution.request_id=f.id
@@ -29,6 +29,16 @@ export function followupInbox(user: User) {
     owners,
     requests: requests.map((request) => ({
       ...request,
+      needs_escalation:
+        request.status === "Open" &&
+        (request.owner_id === null || request.owner_unavailable)
+          ? 1
+          : 0,
+      alerts: db
+        .prepare(
+          "SELECT a.id,a.kind,a.day,a.reason,a.created,a.assignment_snapshot,(SELECT COUNT(*) FROM review_followup_alert_deliveries d WHERE d.alert_id=a.id) AS recipients FROM review_followup_alerts a WHERE a.request_id=? AND a.company_id=? ORDER BY a.id DESC",
+        )
+        .all(Number(request.id), user.company_id),
       history: db
         .prepare(
           "SELECT id,reason,before_snapshot,after_snapshot,created,actor_id FROM review_followup_assignment_events WHERE request_id=? AND company_id=? ORDER BY id DESC",

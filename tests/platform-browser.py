@@ -209,11 +209,21 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
     admin.goto(base+'/operations?tab=review-followup-inbox')
     expect(admin.get_by_role('heading',name='Review follow-up inbox',exact=True)).to_be_visible()
     inbox_request=admin.locator('article.panel.ops-form').filter(has_text='Please clarify the evidence behind my review rating.')
-    expect(inbox_request).to_be_visible();inbox_request.get_by_text('Assign owner and due date',exact=True).click()
+    expect(inbox_request).to_be_visible()
+    admin.get_by_role('checkbox',name='Needs HR owner',exact=True).check();expect(inbox_request).to_be_visible()
+    inbox_request.get_by_label('Escalation reason',exact=True).fill('Arrange a replacement HR owner for this question.')
+    inbox_request.get_by_role('button',name='Escalate to HR',exact=True).click();expect(admin.get_by_role('status').filter(has_text='1 HR notifications sent.')).to_be_visible()
+    inbox_request.get_by_role('button',name='Escalate to HR',exact=True).click();expect(admin.get_by_role('status').filter(has_text='Already sent today.')).to_be_visible()
+    admin.get_by_role('checkbox',name='Needs HR owner',exact=True).uncheck()
+    inbox_request.get_by_text('Assign owner and due date',exact=True).click()
     inbox_request.get_by_role('combobox',name=re.compile(r'^HR owner · Follow-up #')).select_option(label='Browser Admin')
     inbox_request.get_by_label('Follow-up due date',exact=True).fill('2000-01-01');inbox_request.get_by_label('Assignment reason',exact=True).fill('Browser HR ownership fixture')
     inbox_request.get_by_role('button',name='Save owner and due date',exact=True).click();expect(admin.get_by_role('status').filter(has_text='Follow-up updated.')).to_be_visible()
     expect(inbox_request).to_contain_text('Overdue');inbox_request.get_by_text('Assignment history',exact=True).click();expect(inbox_request).to_contain_text('Browser HR ownership fixture')
+    inbox_request.get_by_role('button',name='Remind overdue HR owner',exact=True).click();expect(admin.get_by_role('status').filter(has_text='1 HR notifications sent.')).to_be_visible()
+    inbox_request.get_by_role('button',name='Remind overdue HR owner',exact=True).click();expect(admin.get_by_role('status').filter(has_text='Already sent today.')).to_be_visible()
+    inbox_request.get_by_text('Reminder and escalation history',exact=True).click();expect(inbox_request).to_contain_text('Arrange a replacement HR owner for this question.')
+
     admin.get_by_label('Ownership',exact=True).select_option('unassigned');expect(admin.get_by_text('No follow-ups match these filters.',exact=True)).to_be_visible()
     admin.get_by_label('Ownership',exact=True).select_option('mine');admin.get_by_role('checkbox',name='Overdue only',exact=True).check();expect(inbox_request).to_be_visible()
     admin.get_by_label('Search follow-ups',exact=True).fill('not-matching-any-question');expect(inbox_request).to_have_count(0);admin.get_by_label('Search follow-ups',exact=True).fill('Browser Worker')
@@ -225,7 +235,7 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
     staff.reload();expect(staff.get_by_text('We reviewed the examples together and recorded your question.',exact=True)).to_be_visible()
     expect(staff.get_by_role('button',name='Request HR follow-up',exact=True)).to_be_visible();expect(staff.get_by_role('status').filter(has_text='Acknowledged by employee')).to_be_visible();assert staff.evaluate('document.documentElement.scrollWidth <= innerWidth')
     assert admin.request.get(base+'/api/performance-summaries?id='+str(saved_summary['id'])).json()==saved_summary
-    assert not errors,errors;browser.close();print('PASS: browser company signup, validated staff import, review cycle creation/bulk assignment/duplicate protection/manual reminders/daily delivery limits/progress/publication/closure/reviewer reassignment/preserved response history/employee acknowledgment/receipt reminders/frozen completion summaries/HR receipt tracking/private employee questions/final HR resolutions/HR inbox/owner and due-date history/overdue filters and mobile layout, payroll calculation/approval, invitations, mobile payslips, clock in/out, leave request, and learning knowledge check; reviewed bonus inputs, opening balances, immutable external review, locked periods, YTD totals and mobile adjusted payslips, cumulative preview, calculation/approval and own mobile tax working; salary/authority receipt entry, correction history and salary-paid reconciliation; export identifier review, bank ZIP download and statutory pack generation; encrypted company download, read-only archive comparison and employee backup denial; no browser errors.')
+    assert not errors,errors;browser.close();print('PASS: browser company signup, validated staff import, review cycle creation/bulk assignment/duplicate protection/manual reminders/daily delivery limits/progress/publication/closure/reviewer reassignment/preserved response history/employee acknowledgment/receipt reminders/frozen completion summaries/HR receipt tracking/private employee questions/final HR resolutions/HR inbox/owner and due-date history/overdue filters/manual owner reminders/escalation queue and mobile layout, payroll calculation/approval, invitations, mobile payslips, clock in/out, leave request, and learning knowledge check; reviewed bonus inputs, opening balances, immutable external review, locked periods, YTD totals and mobile adjusted payslips, cumulative preview, calculation/approval and own mobile tax working; salary/authority receipt entry, correction history and salary-paid reconciliation; export identifier review, bank ZIP download and statutory pack generation; encrypted company download, read-only archive comparison and employee backup denial; no browser errors.')
   except Exception:
    log.seek(0);print(log.read()[-6000:]);raise
   finally:server.terminate();server.wait(timeout=10)

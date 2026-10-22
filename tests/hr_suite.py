@@ -533,6 +533,26 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    for client in [worker,manager,peer]:client.expect(403,'/api/review-followups',assignment)
    b.expect(400,'/api/review-followups',assignment)
    a.expect(403,'/api/review-followups',assignment,origin='https://untrusted.example')
+   escalation={'action':'escalate','request_id':inbox_id,'expected_version':0,'reason':'Arrange ownership for the unassigned question'}
+   reminder_owner={'action':'remind_owner','request_id':inbox_id,'expected_version':0}
+   guest.expect(401,'/api/review-followups',escalation)
+   for client in [worker,manager,peer]:
+    client.expect(403,'/api/review-followups',escalation);client.expect(403,'/api/review-followups',reminder_owner)
+   b.expect(400,'/api/review-followups',escalation)
+   a.expect(403,'/api/review-followups',escalation,origin='https://untrusted.example')
+   a.expect(400,'/api/review-followups',reminder_owner)
+   for bad in [{'reason':''},{'reason':'x'*2001},{'expected_version':1},{'request_id':0}]:a.expect(400,'/api/review-followups',{**escalation,**bad})
+   before_alerts=len(a.expect(200,'/api/notifications')['rows'])
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("CREATE TRIGGER reject_followup_alert BEFORE INSERT ON audit_log WHEN NEW.action='Review follow-up escalated' BEGIN SELECT RAISE(ABORT,'fixture alert failure'); END")
+   a.expect(400,'/api/review-followups',escalation)
+   assert len(a.expect(200,'/api/notifications')['rows'])==before_alerts
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT COUNT(*) FROM review_followup_alerts').fetchone()[0]==0
+    assert db.execute('SELECT COUNT(*) FROM review_followup_alert_deliveries').fetchone()[0]==0
+    db.execute('DROP TRIGGER reject_followup_alert')
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:escalations=list(pool.map(lambda _:a.expect(200,'/api/review-followups',escalation),range(2)))
+   assert sum(e['sent'] for e in escalations)==1 and sum(e['already_sent'] for e in escalations)==1
+   escalation_row=next(r for r in a.expect(200,'/api/review-followup-inbox')['requests'] if r['id']==inbox_id);assert escalation_row['needs_escalation']==1 and len(escalation_row['alerts'])==1
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:peer_account=db.execute('SELECT id FROM accounts WHERE employee_id=?',(pid,)).fetchone()[0]
    for bad in [{'request_id':0},{'expected_version':1},{'expected_version':'0'},{'owner_id':manager_account},{'owner_id':peer_account},{'owner_id':cb['user']['id']},{'owner_id':0},{'reason':''},{'reason':'x'*2001},{'due':'2026-02-30'},{'due':123},{'request_id':qid}]:a.expect(400,'/api/review-followups',{**assignment,**bad})
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
@@ -549,11 +569,22 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    assert sorted(status for status,_ in assigned_results)==[200,400];checks+=2
    row=next(r for r in a.expect(200,'/api/review-followup-inbox')['requests'] if r['id']==inbox_id);assert row['overdue']==1 and row['version']==1 and len(row['history'])==1
    assert a.expect(200,'/api/review-followups',{**assignment,'expected_version':1})['unchanged']
+   a.expect(400,'/api/review-followups',reminder_owner)
+   a.expect(400,'/api/review-followups',{**escalation,'expected_version':1})
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:owner_alerts=list(pool.map(lambda _:a.expect(200,'/api/review-followups',{**reminder_owner,'expected_version':1}),range(2)))
+   assert sum(e['sent'] for e in owner_alerts)==1 and sum(e['already_sent'] for e in owner_alerts)==1
+   assert len(a.expect(200,'/api/notifications')['rows'])==before_alerts+3
+
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE accounts SET access='admin' WHERE id=?",(peer_account,))
    a.expect(200,'/api/review-followups',{**assignment,'expected_version':1,'owner_id':peer_account,'due':'2099-01-01','reason':'Transfer to the replacement HR owner'})
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE accounts SET access='employee' WHERE id=?",(peer_account,))
    peer.expect(403,'/api/review-followup-inbox')
    row=next(r for r in a.expect(200,'/api/review-followup-inbox')['requests'] if r['id']==inbox_id);assert row['owner_unavailable']==1 and row['overdue']==0 and row['version']==2 and len(row['history'])==2
+   unavailable_row=next(r for r in a.expect(200,'/api/review-followup-inbox')['requests'] if r['id']==inbox_id);assert unavailable_row['needs_escalation']==1
+   a.expect(400,'/api/review-followups',{**reminder_owner,'expected_version':2})
+   assert a.expect(200,'/api/review-followups',{**escalation,'expected_version':2})['already_sent']
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE review_followup_alerts SET day='2000-01-01' WHERE kind='escalation'")
+   assert a.expect(200,'/api/review-followups',{**escalation,'expected_version':2})['sent']==1
    a.expect(400,'/api/review-followups',{**assignment,'expected_version':2,'owner_id':peer_account})
    a.expect(200,'/api/review-followups',{**assignment,'expected_version':2,'owner_id':None,'due':'','reason':'Clear ownership after HR role change'})
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
@@ -563,6 +594,9 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    a.expect(200,'/api/review-followups',{'action':'resolve','request_id':inbox_id,'note':'Inbox resolution fixture'})
    a.expect(400,'/api/review-followups',{**assignment,'expected_version':3})
    resolved_inbox=next(r for r in a.expect(200,'/api/review-followup-inbox')['requests'] if r['id']==inbox_id)
+   a.expect(400,'/api/review-followups',{**reminder_owner,'expected_version':3})
+   a.expect(400,'/api/review-followups',{**escalation,'expected_version':3})
+   assert resolved_inbox['needs_escalation']==0 and len(resolved_inbox['alerts'])==3
    assert resolved_inbox['status']=='Resolved' and resolved_inbox['overdue']==0 and len(resolved_inbox['history'])==3 and resolved_inbox['resolution_note']=='Inbox resolution fixture'
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])

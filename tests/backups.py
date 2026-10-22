@@ -66,7 +66,9 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    followup_body={'action':'request','record_id':published['id'],'review_hash':published['review_hash'],'request_key':secrets.token_hex(16),'question':'Recovery follow-up question'}
    followup_id=employee.expect(200,'/api/review-followups',followup_body)['id']
    resolution_body={'action':'resolve','request_id':followup_id,'note':'Recovery HR response'}
-   a.expect(200,'/api/review-followups',{'action':'assign','request_id':followup_id,'expected_version':0,'owner_id':context['user']['id'],'due':'2026-12-31','reason':'Recovery ownership evidence'})
+   a.expect(200,'/api/review-followups',{'action':'escalate','request_id':followup_id,'expected_version':0,'reason':'Recovery escalation evidence'})
+   a.expect(200,'/api/review-followups',{'action':'assign','request_id':followup_id,'expected_version':0,'owner_id':context['user']['id'],'due':'2000-01-01','reason':'Recovery ownership evidence'})
+   a.expect(200,'/api/review-followups',{'action':'remind_owner','request_id':followup_id,'expected_version':1})
    a.expect(200,'/api/review-followups',resolution_body)
    a.document(wid)
    # A synthetic frozen offer proves archives preserve letters while excluding/revoking links.
@@ -93,8 +95,9 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    assert plain['tables']['performance_summaries'][0]['content_hash']==frozen_summary['content_hash']
    assert plain['tables']['review_followups'][0]['question']=='Recovery follow-up question'
    assert plain['tables']['review_followup_resolutions'][0]['note']=='Recovery HR response'
-   assert plain['tables']['review_followup_assignments'][0]['due']=='2026-12-31'
+   assert plain['tables']['review_followup_assignments'][0]['due']=='2000-01-01'
    assert plain['tables']['review_followup_assignment_events'][0]['reason']=='Recovery ownership evidence'
+   assert len(plain['tables']['review_followup_alerts'])==2 and len(plain['tables']['review_followup_alert_deliveries'])==2
    assert json.loads(plain['tables']['review_acknowledgments'][0]['snapshot'])['body']=='Recovery handoff evidence'
    assert json.loads(plain['tables']['performance_reassignments'][0]['snapshot'])['body']=='Recovery handoff evidence'
    text=json.dumps(plain);assert 'backup-b@example.test' not in text and 'Backup Beta' not in text
@@ -143,8 +146,10 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
     assert db.execute('SELECT content_hash FROM performance_summaries').fetchone()[0]==frozen_summary['content_hash']
     assert db.execute('SELECT question FROM review_followups').fetchone()[0]=='Recovery follow-up question'
     assert db.execute('SELECT note FROM review_followup_resolutions').fetchone()[0]=='Recovery HR response'
-    assert db.execute('SELECT due FROM review_followup_assignments').fetchone()[0]=='2026-12-31'
+    assert db.execute('SELECT due FROM review_followup_assignments').fetchone()[0]=='2000-01-01'
     assert db.execute('SELECT reason FROM review_followup_assignment_events').fetchone()[0]=='Recovery ownership evidence'
+    assert db.execute('SELECT COUNT(*) FROM review_followup_alerts').fetchone()[0]==2
+    assert db.execute('SELECT COUNT(*) FROM review_followup_alert_deliveries').fetchone()[0]==2
     assert json.loads(db.execute('SELECT snapshot FROM performance_reassignments').fetchone()[0])['body']=='Recovery handoff evidence'
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert db.execute('SELECT role FROM employees WHERE id=?',(wid,)).fetchone()[0]=='Changed after backup'
    recovery_server=start(restored,3109,log);ready('http://127.0.0.1:3109');recovered_client=Client('http://127.0.0.1:3109');recovered_client.expect(200,'/api/auth',{'email':'backup-a@example.test','password':password});assert recovered_client.expect(200,'/api/operations')['company']['name']=='Backup Alpha';assert len(recovered_client.expect(200,'/api/payroll')['items'])==2
@@ -154,7 +159,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    recovered_receipt=recovered_employee.expect(200,'/api/review-acknowledgments',receipt_body);assert recovered_receipt['already_acknowledged'] and recovered_receipt['acknowledgment']==original_receipt
    assert recovered_employee.expect(200,'/api/review-followups',followup_body)['reused']
    assert recovered_client.expect(200,'/api/review-followups',resolution_body)['reused']
-   recovered_inbox=recovered_client.expect(200,'/api/review-followup-inbox')['requests'][0];assert recovered_inbox['due']=='2026-12-31' and recovered_inbox['history'][0]['reason']=='Recovery ownership evidence'
+   recovered_inbox=recovered_client.expect(200,'/api/review-followup-inbox')['requests'][0];assert recovered_inbox['due']=='2000-01-01' and recovered_inbox['history'][0]['reason']=='Recovery ownership evidence'
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert not db.execute('PRAGMA foreign_key_check').fetchall()
    print(f'PASS: {checks} backup HTTP checks; company isolation, credential exclusion, authenticated encryption, tamper/wrong-key rejection, document preservation, same-count content comparison; consistent operator backup, no overwrite, credential revocation in recovered copy, unchanged live data and original-password login after recovery.')
   except Exception:

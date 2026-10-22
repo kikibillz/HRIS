@@ -17,6 +17,15 @@ type Item = {
   due: string;
   version: number;
   overdue: number;
+  needs_escalation: number;
+  alerts: {
+    id: number;
+    kind: string;
+    day: string;
+    reason: string;
+    created: string;
+    recipients: number;
+  }[];
   history: {
     id: number;
     reason: string;
@@ -31,6 +40,7 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
     [status, setStatus] = useState("Open"),
     [ownerFilter, setOwnerFilter] = useState("all"),
     [overdueOnly, setOverdueOnly] = useState(false),
+    [escalationsOnly, setEscalationsOnly] = useState(false),
     [search, setSearch] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -61,9 +71,15 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
     setError("");
     setMessage("");
     try {
-      await api("review-followups", body);
+      const result = await api("review-followups", body);
       await load();
-      setMessage("Follow-up updated.");
+      setMessage(
+        result.alert
+          ? result.already_sent
+            ? "Already sent today. No duplicate notification created."
+            : `${result.sent} HR notifications sent.`
+          : "Follow-up updated.",
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to update follow-up.");
     } finally {
@@ -78,6 +94,7 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
           ? row.owner_id === context.user.id
           : row.owner_id === null)) &&
       (!overdueOnly || !!row.overdue) &&
+      (!escalationsOnly || !!row.needs_escalation) &&
       `${row.employee_name} ${row.review_title} ${row.question}`
         .toLowerCase()
         .includes(search.toLowerCase()),
@@ -121,6 +138,14 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
           />
           Overdue only
         </label>
+        <label className="ops-check">
+          <input
+            type="checkbox"
+            checked={escalationsOnly}
+            onChange={(e) => setEscalationsOnly(e.target.checked)}
+          />
+          Needs HR owner
+        </label>
         <button
           className="secondary"
           disabled={busy}
@@ -146,11 +171,14 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
           ).length
         }{" "}
         unassigned · {requests.filter((row) => row.overdue).length} overdue ·{" "}
-        {filtered.length} shown
+        {requests.filter((row) => row.needs_escalation).length} need an HR owner
+        · {filtered.length} shown
       </p>
       <p>
         Due dates use Lagos calendar dates. Ownership helps HR coordinate work;
-        access continues to follow company roles.
+        access continues to follow company roles. Owner reminders and
+        escalations are manual in-app notifications, limited to one of each per
+        request per Lagos day.
       </p>
       {error && (
         <p className="error" role="alert">
@@ -176,6 +204,49 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
           <a href="/operations?tab=reviews">Open performance reviews</a>
           {row.status === "Open" ? (
             <>
+              {!!row.overdue &&
+                row.owner_id !== null &&
+                !row.owner_unavailable && (
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() =>
+                      void save({
+                        action: "remind_owner",
+                        request_id: row.id,
+                        expected_version: row.version,
+                      })
+                    }
+                  >
+                    Remind overdue HR owner
+                  </button>
+                )}
+              {!!row.needs_escalation && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void save({
+                      action: "escalate",
+                      request_id: row.id,
+                      expected_version: row.version,
+                      reason: new FormData(e.currentTarget).get("reason"),
+                    });
+                  }}
+                >
+                  <p>
+                    This open follow-up needs an available HR owner. Notify
+                    active HR administrators to arrange reassignment.
+                  </p>
+                  <label>
+                    Escalation reason
+                    <textarea name="reason" required maxLength={2000} />
+                  </label>
+                  <button className="secondary" disabled={busy}>
+                    Escalate to HR
+                  </button>
+                </form>
+              )}
+
               <details>
                 <summary>Assign owner and due date</summary>
                 <form
@@ -253,6 +324,23 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
               <p>Resolved {row.resolved_at && dateTime(row.resolved_at)}</p>
               <p className="preserve-lines">{row.resolution_note}</p>
             </>
+          )}
+          {!!row.alerts.length && (
+            <details>
+              <summary>Reminder and escalation history</summary>
+              {row.alerts.map((alert) => (
+                <article key={alert.id}>
+                  <p>
+                    {alert.kind === "owner_reminder"
+                      ? "Owner reminder"
+                      : "Escalation"}{" "}
+                    · {dateTime(alert.created)} · {alert.recipients} HR
+                    recipients
+                  </p>
+                  <p className="preserve-lines">{alert.reason}</p>
+                </article>
+              ))}
+            </details>
           )}
           {!!row.history.length && (
             <details>
