@@ -246,20 +246,28 @@ db.exec(`CREATE TABLE IF NOT EXISTS performance_cycles(id INTEGER PRIMARY KEY,co
 CREATE TABLE IF NOT EXISTS performance_assignments(cycle_id INTEGER NOT NULL REFERENCES performance_cycles(id),employee_id INTEGER NOT NULL REFERENCES employees(id),record_id INTEGER NOT NULL UNIQUE REFERENCES hr_records(id),PRIMARY KEY(cycle_id,employee_id));`);
 
 // Daily reminder keys persist across refreshes/restarts and commit with delivery.
-db.exec(`CREATE TABLE IF NOT EXISTS performance_reminders(record_id INTEGER NOT NULL REFERENCES hr_records(id),day TEXT NOT NULL,company_id INTEGER NOT NULL REFERENCES companies(id),reviewer_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),notification_id INTEGER NOT NULL REFERENCES notifications(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),PRIMARY KEY(record_id,day));`);
+db.exec(
+  `CREATE TABLE IF NOT EXISTS performance_reminders(record_id INTEGER NOT NULL REFERENCES hr_records(id),day TEXT NOT NULL,company_id INTEGER NOT NULL REFERENCES companies(id),reviewer_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),notification_id INTEGER NOT NULL REFERENCES notifications(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),PRIMARY KEY(record_id,day));`,
+);
 
 // Reassignments preserve the exact response handed over and the reason for access changes.
 db.exec(`CREATE TABLE IF NOT EXISTS performance_reassignments(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),record_id INTEGER NOT NULL REFERENCES hr_records(id),from_reviewer_id INTEGER NOT NULL REFERENCES employees(id),to_reviewer_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),reason TEXT NOT NULL,snapshot TEXT NOT NULL,created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));
 CREATE INDEX IF NOT EXISTS performance_reassignments_record ON performance_reassignments(record_id,id);`);
 
 // Receipt evidence is separate from immutable published reviews.
-db.exec(`CREATE TABLE IF NOT EXISTS review_acknowledgments(record_id INTEGER PRIMARY KEY REFERENCES hr_records(id),company_id INTEGER NOT NULL REFERENCES companies(id),employee_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),review_hash TEXT NOT NULL,snapshot TEXT NOT NULL,created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));`);
+db.exec(
+  `CREATE TABLE IF NOT EXISTS review_acknowledgments(record_id INTEGER PRIMARY KEY REFERENCES hr_records(id),company_id INTEGER NOT NULL REFERENCES companies(id),employee_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),review_hash TEXT NOT NULL,snapshot TEXT NOT NULL,created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));`,
+);
 
 // Receipt follow-ups are independent of reviewer reminders and remain valid after closure.
-db.exec(`CREATE TABLE IF NOT EXISTS acknowledgment_reminders(record_id INTEGER NOT NULL REFERENCES hr_records(id),day TEXT NOT NULL,company_id INTEGER NOT NULL REFERENCES companies(id),employee_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),notification_id INTEGER NOT NULL REFERENCES notifications(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),PRIMARY KEY(record_id,day));`);
+db.exec(
+  `CREATE TABLE IF NOT EXISTS acknowledgment_reminders(record_id INTEGER NOT NULL REFERENCES hr_records(id),day TEXT NOT NULL,company_id INTEGER NOT NULL REFERENCES companies(id),employee_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),notification_id INTEGER NOT NULL REFERENCES notifications(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),PRIMARY KEY(record_id,day));`,
+);
 
 // Content-addressed summaries freeze operational completion evidence, not review responses.
-db.exec(`CREATE TABLE IF NOT EXISTS performance_summaries(id INTEGER PRIMARY KEY,cycle_id INTEGER NOT NULL REFERENCES performance_cycles(id),company_id INTEGER NOT NULL REFERENCES companies(id),content_hash TEXT NOT NULL,snapshot TEXT NOT NULL,created_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(cycle_id,content_hash));`);
+db.exec(
+  `CREATE TABLE IF NOT EXISTS performance_summaries(id INTEGER PRIMARY KEY,cycle_id INTEGER NOT NULL REFERENCES performance_cycles(id),company_id INTEGER NOT NULL REFERENCES companies(id),content_hash TEXT NOT NULL,snapshot TEXT NOT NULL,created_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(cycle_id,content_hash));`,
+);
 
 // Follow-up questions and HR resolutions are separate from published review evidence.
 db.exec(`CREATE TABLE IF NOT EXISTS review_followups(id INTEGER PRIMARY KEY,record_id INTEGER NOT NULL REFERENCES hr_records(id),company_id INTEGER NOT NULL REFERENCES companies(id),employee_id INTEGER NOT NULL REFERENCES employees(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),request_key TEXT NOT NULL,question TEXT NOT NULL,review_hash TEXT NOT NULL,snapshot TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'Open' CHECK(status IN ('Open','Resolved')),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(company_id,request_key));
@@ -275,7 +283,29 @@ db.exec(`CREATE TABLE IF NOT EXISTS review_followup_alerts(id INTEGER PRIMARY KE
 CREATE TABLE IF NOT EXISTS review_followup_alert_deliveries(alert_id INTEGER NOT NULL REFERENCES review_followup_alerts(id),account_id INTEGER NOT NULL REFERENCES accounts(id),notification_id INTEGER NOT NULL REFERENCES notifications(id),PRIMARY KEY(alert_id,account_id));`);
 
 // Workload snapshots freeze HR coordination metadata without private question/response text.
-db.exec(`CREATE TABLE IF NOT EXISTS review_followup_summaries(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),content_hash TEXT NOT NULL,snapshot TEXT NOT NULL,created_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(company_id,content_hash));`);
+db.exec(
+  `CREATE TABLE IF NOT EXISTS review_followup_summaries(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),content_hash TEXT NOT NULL,snapshot TEXT NOT NULL,created_by INTEGER NOT NULL REFERENCES accounts(id),created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(company_id,content_hash));`,
+);
 
 // Completed bulk assignments preserve the reviewed plan and safe retry result.
-db.exec(`CREATE TABLE IF NOT EXISTS review_followup_batches(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),preview_hash TEXT NOT NULL,input_json TEXT NOT NULL,snapshot TEXT NOT NULL,result_json TEXT NOT NULL,created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(company_id,preview_hash));`);
+db.exec(
+  `CREATE TABLE IF NOT EXISTS review_followup_batches(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),actor_id INTEGER NOT NULL REFERENCES accounts(id),preview_hash TEXT NOT NULL,input_json TEXT NOT NULL,snapshot TEXT NOT NULL,result_json TEXT NOT NULL,created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(company_id,preview_hash));`,
+);
+
+// Older batches keep their original evidence; future batches freeze the saving administrator's name.
+db.exec("BEGIN IMMEDIATE");
+try {
+  if (
+    !db
+      .prepare("PRAGMA table_info(review_followup_batches)")
+      .all()
+      .some((column) => column.name === "actor_name")
+  )
+    db.exec(
+      "ALTER TABLE review_followup_batches ADD COLUMN actor_name TEXT NOT NULL DEFAULT ''",
+    );
+  db.exec("COMMIT");
+} catch (e) {
+  db.exec("ROLLBACK");
+  throw e;
+}

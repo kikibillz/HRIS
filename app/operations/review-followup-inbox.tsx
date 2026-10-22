@@ -1,6 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import ReviewFollowupBulk from "./review-followup-bulk";
+import ReviewFollowupBatchHistory, {
+  type FollowupBatch,
+} from "./review-followup-batch-history";
 import { api, dateTime, type Context } from "./types";
 type WorkloadSummary = {
   id: number;
@@ -53,6 +56,7 @@ type Item = {
 };
 export default function ReviewFollowupInbox({ context }: { context: Context }) {
   const [requests, setRequests] = useState<Item[]>([]),
+    [batches, setBatches] = useState<FollowupBatch[]>([]),
     [summaries, setSummaries] = useState<WorkloadSummary[]>([]),
     [owners, setOwners] = useState<{ id: number; name: string }[]>([]),
     [status, setStatus] = useState("Open"),
@@ -68,6 +72,7 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
     setRequests(data.requests);
     setOwners(data.owners);
     setSummaries(data.summaries);
+    setBatches(data.batches);
   }
   useEffect(() => {
     let active = true;
@@ -77,6 +82,7 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
           setRequests(data.requests);
           setOwners(data.owners);
           setSummaries(data.summaries);
+          setBatches(data.batches);
         }
       })
       .catch((e) => {
@@ -273,6 +279,7 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
         owners={owners}
         onSaved={load}
       />
+      <ReviewFollowupBatchHistory batches={batches} />
       {filtered.map((row) => (
         <article className="panel ops-form" key={row.id}>
           <h2>

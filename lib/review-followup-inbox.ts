@@ -1,3 +1,4 @@
+import { reviewFollowupBatches } from "./review-followup-batch-history";
 import { followupWorkloadSummaries } from "./review-followup-summaries";
 import { db } from "./db";
 import type { User } from "./auth";
@@ -28,6 +29,7 @@ export function followupInbox(user: User) {
     .all(onboardingDay(), user.company_id);
   return {
     owners,
+    batches: reviewFollowupBatches(user),
     summaries: followupWorkloadSummaries(user),
     requests: requests.map((request) => ({
       ...request,

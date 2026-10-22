@@ -142,7 +142,7 @@ export function bulkReviewFollowupAssignment(
     const id = Number(
       db
         .prepare(
-          "INSERT INTO review_followup_batches(company_id,actor_id,preview_hash,input_json,snapshot,result_json) VALUES (?,?,?,?,?,?)",
+          "INSERT INTO review_followup_batches(company_id,actor_id,preview_hash,input_json,snapshot,result_json,actor_name) VALUES (?,?,?,?,?,?,?)",
         )
         .run(
           user.company_id,
@@ -151,6 +151,7 @@ export function bulkReviewFollowupAssignment(
           inputJson,
           JSON.stringify(plan),
           JSON.stringify(result),
+          user.name,
         ).lastInsertRowid,
     );
     audit(user, "Bulk review follow-up assignment completed", String(id));

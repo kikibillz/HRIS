@@ -680,6 +680,36 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
     assert db.execute('SELECT * FROM hr_records ORDER BY id').fetchall()==before_bulk_reviews
     assert db.execute('SELECT COUNT(*) FROM review_followup_batches').fetchone()[0]==1
+   # Completed batch history remains private and frozen after later edits.
+   batch_id=bulk_results[0]['batch_id'];batch_download=bulk_url+'?id='+str(batch_id)
+   guest.expect(401,bulk_url);guest.expect(401,batch_download)
+   for client in [worker,manager,peer]:client.expect(403,bulk_url);client.expect(403,batch_download)
+   for invalid in ['','0','-1','bad','1.5','9007199254740992']:a.expect(400,bulk_url+'?id='+invalid)
+   b.expect(404,batch_download);a.expect(404,bulk_url+'?id=999999')
+   assert b.expect(200,bulk_url)['batches']==[]
+   saved_batches=a.expect(200,bulk_url)['batches'];assert len(saved_batches)==1 and saved_batches[0]['changed']==2 and saved_batches[0]['selected']==2 and saved_batches[0]['reason']==bulk['reason']
+   frozen_batch=a.expect(200,batch_download);batch_payload=frozen_batch['payload']
+   assert batch_payload['batch']['actor_name']==ca['user']['name'] and batch_payload['batch']['actor_id']==ca['user']['id']
+   assert batch_payload['result']['changed']==2 and len(batch_payload['plan'])==2 and all(r['new_due']=='2026-12-31' for r in batch_payload['plan'])
+   assert hashlib.sha256(json.dumps(batch_payload,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()==frozen_batch['content_hash']
+   assert not any(key in json.dumps(frozen_batch) for key in ['"question"','"resolution_note"','"password_hash"','"body"','"rating"','"email"'])
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    before_batch_read=db.execute('SELECT * FROM review_followup_batches ORDER BY id').fetchall()
+    before_batch_audit=db.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]
+    db.execute("UPDATE employees SET name='Renamed HR profile' WHERE id=?",(aid,))
+   assert a.expect(200,batch_download)==frozen_batch
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute('UPDATE employees SET name=? WHERE id=?',(ca['user']['name'],aid))
+   assert a.expect(200,bulk_url,commit)['reused']
+   a.expect(200,'/api/review-followups',{'action':'resolve','request_id':bulk_a,'note':'Resolution after completed batch'})
+   assert a.expect(200,batch_download)==frozen_batch
+   assert next(r for r in a.expect(200,'/api/review-followup-inbox')['batches'] if r['id']==batch_id)['changed']==2
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM review_followup_batches ORDER BY id').fetchall()==before_batch_read
+    assert db.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]==before_batch_audit+1
+    # A migrated pre-feature batch has an unknown historical display name, not a guessed name.
+    db.execute("UPDATE review_followup_batches SET actor_name='' WHERE id=?",(batch_id,))
+   assert a.expect(200,batch_download)['payload']['batch']['actor_name'] is None
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute('UPDATE review_followup_batches SET actor_name=? WHERE id=?',(ca['user']['name'],batch_id))
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})

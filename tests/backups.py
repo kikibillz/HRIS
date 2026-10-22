@@ -71,6 +71,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    bulk_preview=a.expect(200,'/api/review-followup-bulk',bulk_body)
    bulk_commit={**bulk_body,'action':'commit','preview_hash':bulk_preview['preview_hash']}
    original_batch=a.expect(200,'/api/review-followup-bulk',bulk_commit)
+   original_batch_download=a.expect(200,'/api/review-followup-bulk?id='+str(original_batch['batch_id']))
    a.expect(200,'/api/review-followups',{'action':'remind_owner','request_id':followup_id,'expected_version':1})
    a.expect(200,'/api/review-followups',resolution_body)
    workload_id=a.expect(200,'/api/review-followup-summaries',{})['id']
@@ -105,6 +106,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    assert len(plain['tables']['review_followup_alerts'])==2 and len(plain['tables']['review_followup_alert_deliveries'])==2
    assert plain['tables']['review_followup_summaries'][0]['content_hash']==saved_workload['content_hash']
    assert plain['tables']['review_followup_batches'][0]['preview_hash']==bulk_preview['preview_hash']
+   assert plain['tables']['review_followup_batches'][0]['actor_name']==context['user']['name']
    assert json.loads(plain['tables']['review_acknowledgments'][0]['snapshot'])['body']=='Recovery handoff evidence'
    assert json.loads(plain['tables']['performance_reassignments'][0]['snapshot'])['body']=='Recovery handoff evidence'
    text=json.dumps(plain);assert 'backup-b@example.test' not in text and 'Backup Beta' not in text
@@ -172,6 +174,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    assert recovered_client.expect(200,'/api/review-followup-summaries?id='+str(workload_id))==saved_workload
    assert recovered_client.expect(200,'/api/review-followup-summaries',{})['reused']
    restored_batch=recovered_client.expect(200,'/api/review-followup-bulk',bulk_commit);assert restored_batch['reused'] and restored_batch['batch_id']==original_batch['batch_id']
+   assert recovered_client.expect(200,'/api/review-followup-bulk?id='+str(original_batch['batch_id']))==original_batch_download
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert not db.execute('PRAGMA foreign_key_check').fetchall()
    print(f'PASS: {checks} backup HTTP checks; company isolation, credential exclusion, authenticated encryption, tamper/wrong-key rejection, document preservation, same-count content comparison; consistent operator backup, no overwrite, credential revocation in recovered copy, unchanged live data and original-password login after recovery.')
   except Exception:
