@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import ReviewFollowupViews from "./review-followup-views";
 import ReviewFollowupBulk from "./review-followup-bulk";
 import ReviewFollowupBatchHistory, {
   type FollowupBatch,
@@ -147,6 +148,22 @@ export default function ReviewFollowupInbox({ context }: { context: Context }) {
   );
   return (
     <>
+      <ReviewFollowupViews
+        filters={{
+          status,
+          ownership: ownerFilter,
+          overdue_only: overdueOnly,
+          needs_hr_owner: escalationsOnly,
+          search,
+        }}
+        onApply={(v) => {
+          setStatus(v.status);
+          setOwnerFilter(v.ownership);
+          setOverdueOnly(v.overdue_only);
+          setEscalationsOnly(v.needs_hr_owner);
+          setSearch(v.search);
+        }}
+      />
       <section className="panel ops-form">
         <h2>Saved workload summaries</h2>
         <p>

@@ -710,6 +710,43 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
     db.execute("UPDATE review_followup_batches SET actor_name='' WHERE id=?",(batch_id,))
    assert a.expect(200,batch_download)['payload']['batch']['actor_name'] is None
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute('UPDATE review_followup_batches SET actor_name=? WHERE id=?',(ca['user']['name'],batch_id))
+   # Saved filter views are private per administrator and version protected.
+   views_url='/api/review-followup-views'
+   guest.expect(401,views_url)
+   for client in [worker,peer,manager]:client.expect(403,views_url);client.expect(403,views_url,{'action':'save'})
+   settings={'status':'Open','ownership':'mine','overdue_only':True,'needs_hr_owner':False,'search':'private question search'}
+   body={'action':'save','name':'My overdue questions','filters':settings}
+   a.expect(403,views_url,body,origin='https://evil.example')
+   for invalid in [{**settings,'status':'bad'},{**settings,'overdue_only':1},{**settings,'search':'x'*201},{**settings,'extra':'no'}]:a.expect(400,views_url,{**body,'filters':invalid})
+   a.expect(400,views_url,{**body,'name':' '})
+   a.expect(400,views_url,{**body,'action':['save']})
+   a.expect(400,views_url,{**body,'filters':{**settings,'status':['Open']}})
+   saved=a.expect(200,views_url,body);vid=saved['id']
+   row=a.expect(200,views_url)['views'][0];assert row['filters']==settings and row['version']==1
+   a.expect(400,views_url,{**body,'name':' MY OVERDUE QUESTIONS '})
+   assert b.expect(200,views_url)['views']==[]
+   b.expect(400,views_url,{**body,'id':vid,'expected_version':1})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE accounts SET access='admin' WHERE id=?",(peer_account,))
+   assert peer.expect(200,views_url)['views']==[]
+   peer.expect(400,views_url,{'action':'archive','id':vid,'expected_version':1})
+   peer.expect(200,views_url,body)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE accounts SET access='employee' WHERE id=?",(peer_account,))
+   edit={**body,'id':vid,'expected_version':1}
+   assert a.expect(200,views_url,edit)['unchanged']
+   assert a.expect(200,views_url)['views'][0]['version']==1
+   changed={**edit,'name':'Updated view'}
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+    outcomes=list(pool.map(lambda _:a.request(views_url,changed),range(2)))
+   assert sorted(r[0] for r in outcomes)==[200,400]
+   a.expect(400,views_url,edit)
+   row=a.expect(200,views_url)['views'][0];assert row['version']==2 and row['name']=='Updated view'
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("CREATE TRIGGER reject_view_save BEFORE INSERT ON audit_log WHEN NEW.action='Archived private inbox view' BEGIN SELECT RAISE(ABORT,'fixture view failure'); END")
+   archive={'action':'archive','id':vid,'expected_version':2}
+   a.expect(400,views_url,archive)
+   assert a.expect(200,views_url)['views'][0]['version']==2
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute('DROP TRIGGER reject_view_save')
+   a.expect(200,views_url,archive);assert a.expect(200,views_url)['views']==[]
+   a.expect(400,views_url,archive);a.expect(200,views_url,body)
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})

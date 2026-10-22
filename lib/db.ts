@@ -309,3 +309,7 @@ try {
   db.exec("ROLLBACK");
   throw e;
 }
+
+// Personal inbox preferences contain filters only; access remains enforced on each request.
+db.exec(`CREATE TABLE IF NOT EXISTS review_followup_views(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),account_id INTEGER NOT NULL REFERENCES accounts(id),name TEXT NOT NULL,name_key TEXT NOT NULL,filters_json TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1 CHECK(version>0),archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)));
+CREATE UNIQUE INDEX IF NOT EXISTS review_followup_view_names ON review_followup_views(account_id,name_key) WHERE archived=0;`);
