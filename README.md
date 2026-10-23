@@ -10,6 +10,8 @@ Read [HR suite workflows, payroll scope, external configuration, and acceptance 
 
 Read the [prioritized remaining launch checklist](docs/LAUNCH-CHECKLIST.md) for professional sign-off, hosting, backups, company acceptance and optional integrations.
 
+Prepared launch materials: [operating runbook and backup automation](docs/OPERATIONS.md), [staff pilot acceptance](docs/PILOT-ACCEPTANCE.md), and [accountant review/sign-off](docs/PAYROLL-SIGNOFF.md). Production activation and human approvals remain pending.
+
 ## Review the app in your browser
 
 1. On this repository's GitHub page, select **Code → Codespaces → Create codespace on main**.

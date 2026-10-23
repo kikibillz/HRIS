@@ -14,9 +14,9 @@ Read [HR suite scope](HR-SUITE.md) for calculation and workflow limits. Passing 
 | --- | --- | --- | --- |
 | 1 | Review Nigeria 2026 PAYE, contribution bases, relief evidence, bonus/partial-month methods, and opening balances for the actual company. | Company HR/finance and a qualified accountant | Written sign-off on the rules and reference cases, plus reconciliation of representative company payroll. Engineering reference checks already exist; professional approval remains outstanding. |
 | 2 | Choose and provision the production host, persistent storage, domain and HTTPS proxy. Run one SQLite writer using the documented production setup. | Deployment operator, with the owner's host/domain choices | Production URL loads, HTTPS origin/cookies behave correctly, readiness passes, and accounts/documents survive a restart and update. Docker/Compose support is implemented; this repository review does not verify a live host. |
-| 3 | Arrange encrypted off-host backups, a schedule, retention and a responsible operator. Rehearse restoring to a separate directory before cutover. | Deployment operator | An off-host archive, a successful restore drill, and agreed acceptable data loss/recovery time. Backup/restore tools exist; automatic backup scheduling and retention are not implemented. |
+| 3 | Arrange encrypted off-host backups, a schedule, retention and a responsible operator. Rehearse restoring to a separate directory before cutover. | Deployment operator | An off-host archive, a successful restore drill, and agreed acceptable data loss/recovery time. Encrypted maintenance with isolated restore drills, verified retention and Linux timers is implemented and tested locally. Off-site storage provisioning, host activation and a host restore drill remain pending. |
 | 4 | Run an acceptance pilot with HR, a manager and an employee on desktop and phone. Verify imported staff, reporting lines, access, offers, hiring, reviews, leave, documents and the first payroll. | Company HR and pilot users | Recorded acceptance results and resolved defects. Automated browser tests exist; company acceptance is still required. |
-| 5 | Assign operating responsibilities: monitor health/storage and reminder delivery, handle failed jobs, approve releases, and document recovery ownership. Confirm staff-data access and retention decisions. | Company owner/HR and deployment operator | Named owners and a short operating runbook. Health endpoints, reminder delivery history and audit records exist; they do not provide an external alerting/on-call service. |
+| 5 | Assign operating responsibilities: monitor health/storage and reminder delivery, handle failed jobs, approve releases, and document recovery ownership. Confirm staff-data access and retention decisions. | Company owner/HR and deployment operator | Named owners and the [operating runbook](OPERATIONS.md). Read-only monitoring and timer templates exist; external alert routing and on-call ownership remain pending. |
 
 Use [production deployment](DEPLOYMENT.md) and [backup recovery](BACKUP-RECOVERY.md) for the concrete commands. Never replace the live database during a restore rehearsal.
 
@@ -31,6 +31,12 @@ These are not blockers if the existing manual workflows meet the company's needs
 - **Bank and authority integrations:** generic export preparation and manual reconciliation are implemented. Institution-specific certified formats, direct salary transfers and automated statutory filings require separate specifications/integrations; they are not prerequisites for the chosen manual approach.
 - **Additional payroll cases:** arrears, unpaid-absence adjustments, leaver/termination-specific treatment, automatic refunds, nonresident rules and foreign currency remain outside the current version. Decide which are needed before using the app for affected employees.
 - **Larger product scope:** one login across multiple employers, SCORM/video hosting and multi-writer database scaling are not implemented. Prioritize them only when a real requirement appears.
+
+## Prepared launch materials
+
+- [Accountant review packet and sign-off form](PAYROLL-SIGNOFF.md): approval remains pending.
+- [HR/manager/employee pilot record](PILOT-ACCEPTANCE.md): human acceptance remains pending.
+- [Operator runbook, monitoring and schedule templates](OPERATIONS.md): host activation remains pending.
 
 ## Recommended next order
 

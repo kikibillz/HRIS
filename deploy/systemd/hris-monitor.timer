@@ -1,0 +1,10 @@
+[Unit]
+Description=PeopleOS five-minute operations checks
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=hris-monitor.service
+
+[Install]
+WantedBy=timers.target

@@ -38,7 +38,7 @@ npm run backup:create -- --output data/backups/hris-2026-10-16.hrisbackup
 
 The output file must not already exist. The command creates a consistent snapshot, checks SQLite integrity and foreign keys, encrypts it, and reports table counts, content fingerprints and the plaintext snapshot SHA-256. Files are created with mode `0600`; temporary directories use `0700`. Streaming encryption/decryption avoids loading the whole database into memory. Private temporary plaintext snapshots are removed on normal completion or handled failure; an abrupt operating-system/process crash may leave its private temporary directory for operator cleanup.
 
-Copy the encrypted archive outside the server/Codespace and test recovery periodically. There is no automatic schedule, offsite storage integration or retention cleanup in this release. SQLite backups do not include code, `.env` configuration, external credentials or files stored outside the database; retain the compatible GitHub revision and server configuration separately.
+Copy the encrypted archive outside the server/Codespace and test recovery periodically. Automated backup/restore drills, verified-archive retention and Linux timer templates are available in [OPERATIONS.md](OPERATIONS.md). The operator must provision and verify the off-site filesystem and activate scheduling; these are not enabled by a code update. SQLite backups do not include code, `.env` configuration, external credentials or files stored outside the database; retain the compatible GitHub revision and server configuration separately.
 
 ## Preview recovery
 

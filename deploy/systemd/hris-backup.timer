@@ -1,0 +1,11 @@
+[Unit]
+Description=PeopleOS daily backup schedule
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 Africa/Lagos
+RandomizedDelaySec=300
+Persistent=true
+Unit=hris-backup.service
+
+[Install]
+WantedBy=timers.target

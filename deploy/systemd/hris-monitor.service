@@ -1,0 +1,16 @@
+[Unit]
+Description=PeopleOS read-only database, backup and worker checks
+
+[Service]
+Type=oneshot
+User=hris
+Group=hris
+WorkingDirectory=/opt/peopleos
+EnvironmentFile=/etc/peopleos/operations.env
+ExecStart=/usr/bin/node /opt/peopleos/scripts/operations-check.mjs
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/peopleos /var/lib/hris /mnt/hris-backups
+TimeoutStartSec=10min

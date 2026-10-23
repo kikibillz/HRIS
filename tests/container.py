@@ -23,7 +23,7 @@ def wait():
     raise AssertionError('Container did not become ready')
 try:
     run('volume','create',volume)
-    run('run','-d','--name',name,'--read-only','--tmpfs','/tmp','--tmpfs','/app/.next/cache:uid=1000,gid=1000','--cap-drop=ALL','--security-opt=no-new-privileges:true','-p','127.0.0.1::3000','-v',volume+':/var/lib/hris','-e','HRIS_PUBLIC_ORIGIN=https://hris.example.com',image)
+    run('run','-d','--name',name,'--read-only','--tmpfs','/tmp','--tmpfs','/mnt/test-backup:uid=1000,gid=1000,mode=0700','--tmpfs','/app/.next/cache:uid=1000,gid=1000','--cap-drop=ALL','--security-opt=no-new-privileges:true','-p','127.0.0.1::3000','-v',volume+':/var/lib/hris','-e','HRIS_PUBLIC_ORIGIN=https://hris.example.com',image)
     port=run('port',name,'3000/tcp').rsplit(':',1)[1]
     base='http://127.0.0.1:'+port
     wait()
@@ -44,6 +44,14 @@ try:
     query="const {DatabaseSync}=require('node:sqlite'); const d=new DatabaseSync('/var/lib/hris/hris.sqlite',{readOnly:true}); console.log(JSON.stringify(d.prepare('SELECT count(*) AS n FROM employees').get()));"
     assert json.loads(run('exec',name,'node','-e',query))['n']==1
     before=run('exec',name,'node','-e',"const {DatabaseSync}=require('node:sqlite'); const d=new DatabaseSync('/var/lib/hris/hris.sqlite',{readOnly:true}); console.log(JSON.stringify(d.prepare('SELECT email,password_hash FROM accounts').all()));")
+    # Exercise shipped automation against a separate mounted filesystem in this disposable container.
+    setup="const fs=require('node:fs');const crypto=require('node:crypto');const p=fs.mkdtempSync('/tmp/hris-ops-');fs.chmodSync(p,0o700);fs.writeFileSync(p+'/key',crypto.randomBytes(32).toString('base64url'),{mode:0o600});fs.mkdirSync('/mnt/test-backup/archives',{mode:0o700});console.log(p);"
+    ops_root=run('exec',name,'node','-e',setup)
+    ops_env=['-e','HRIS_BACKUP_DIR=/mnt/test-backup/archives','-e','HRIS_BACKUP_MOUNT=/mnt/test-backup','-e','HRIS_BACKUP_KEY_FILE='+ops_root+'/key','-e','HRIS_MIN_FREE_BYTES=1','-e','HRIS_MONITOR_ORIGIN=http://127.0.0.1:3000']
+    backup_report=json.loads(run('exec',*ops_env,name,'node','scripts/backup-maintenance.mjs'))
+    assert backup_report['restore_drill'] and backup_report['destination_kind']=='mounted-destination'
+    monitor_report=json.loads(run('exec',*ops_env,name,'node','scripts/operations-check.mjs'))
+    assert monitor_report['status']=='ok' and monitor_report['checks']['http']['ok']
     run('restart',name)
     port=run('port',name,'3000/tcp').rsplit(':',1)[1]
     base='http://127.0.0.1:'+port
@@ -52,7 +60,7 @@ try:
     assert before==after
     assert request('/api/companies',body)[0]==400
     assert request('/api/health/ready')[1]['Cache-Control']=='no-store'
-    print('Production container passed: health, origin protection, Secure cookie, no demo seed, persistent account/password hash after restart.')
+    print('Production container passed: health, origin protection, Secure cookie, no demo seed, mounted encrypted backup/restore drill, read-only operations checks, persistent account/password hash after restart.')
 except Exception:
     subprocess.run(docker+['logs',name],check=False)
     raise

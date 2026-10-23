@@ -13,8 +13,8 @@ ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HRIS_DEPLOYMENT=production HRI
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
-COPY --from=build --chown=node:node /app/lib/db.ts /app/lib/backup-format.ts /app/lib/onboarding-reminders.ts /app/lib/onboarding-date.ts ./lib/
-COPY --from=build --chown=node:node /app/scripts/start-production.mjs /app/scripts/backup.mjs /app/scripts/recover-admin.mjs /app/scripts/onboarding-reminders.mjs ./scripts/
+COPY --from=build --chown=node:node /app/lib/db.ts /app/lib/backup-format.ts /app/lib/onboarding-reminders.ts /app/lib/onboarding-date.ts /app/lib/readiness.ts ./lib/
+COPY --from=build --chown=node:node /app/scripts/start-production.mjs /app/scripts/backup.mjs /app/scripts/recover-admin.mjs /app/scripts/onboarding-reminders.mjs /app/scripts/backup-maintenance.mjs /app/scripts/operations-check.mjs ./scripts/
 RUN mkdir -p /var/lib/hris && chown node:node /var/lib/hris && rm -rf /app/data
 USER node
 EXPOSE 3000
