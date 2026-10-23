@@ -12,6 +12,8 @@ Read the [prioritized remaining launch checklist](docs/LAUNCH-CHECKLIST.md) for 
 
 Prepared launch materials: [operating runbook and backup automation](docs/OPERATIONS.md), [staff pilot acceptance](docs/PILOT-ACCEPTANCE.md), and [accountant review/sign-off](docs/PAYROLL-SIGNOFF.md). Production activation and human approvals remain pending.
 
+For the no-budget testing path and port 3000 troubleshooting, read [Private preview](docs/PRIVATE-PREVIEW.md). Run `npm run preview:check` in the actual Codespace before starting another server.
+
 ## Review the app in your browser
 
 1. On this repository's GitHub page, select **Code → Codespaces → Create codespace on main**.

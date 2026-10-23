@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 export HRIS_PREVIEW_PORT="${HRIS_PREVIEW_PORT:-3000}"
-if [[ ! "$HRIS_PREVIEW_PORT" =~ ^[0-9]+$ ]] || ((HRIS_PREVIEW_PORT<1 || HRIS_PREVIEW_PORT>65535)); then
+if [[ ! "$HRIS_PREVIEW_PORT" =~ ^[0-9]{1,5}$ ]] || ((10#$HRIS_PREVIEW_PORT<1 || 10#$HRIS_PREVIEW_PORT>65535)); then
   echo 'HRIS_PREVIEW_PORT must be a port number from 1 to 65535.' >&2
   exit 1
 fi
@@ -49,7 +49,6 @@ if node --input-type=module -e 'import net from "node:net"; const s=net.connect(
   exit 1
 fi
 
-npm ci --cache /tmp/hris-npm-cache
 mkdir -p data
 lock_dir="data/.preview-start-${HRIS_PREVIEW_PORT}.lock"
 if ! mkdir "$lock_dir" 2>/dev/null; then
@@ -57,6 +56,8 @@ if ! mkdir "$lock_dir" 2>/dev/null; then
   exit 1
 fi
 trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
+# Lock before installation: simultaneous starts must not replace each other’s dependencies.
+npm ci --cache /tmp/hris-npm-cache
 # Detach from the lifecycle/terminal session so the server survives its exit.
 nohup env HRIS_ALLOW_SETUP=1 npm run dev -- --port "$HRIS_PREVIEW_PORT" > data/preview.log 2>&1 < /dev/null &
 preview_pid=$!
@@ -75,4 +76,5 @@ for ((attempt=0; attempt<60; attempt++)); do
 done
 echo 'The server is still starting or has a startup error. Last messages:' >&2
 tail -n 35 data/preview.log >&2
+echo 'Run npm run preview:check for read-only diagnostics.' >&2
 exit 1
