@@ -9,6 +9,88 @@ type View = {
   pinned: number;
   filters: InboxFilters;
 };
+function FilterPreview({
+  stored,
+  current,
+  label,
+}: {
+  stored: InboxFilters;
+  current: InboxFilters;
+  label: string;
+}) {
+  const ownership = (value: string) =>
+    value === "mine"
+      ? "Assigned to me"
+      : value === "unassigned"
+        ? "Unassigned"
+        : "All owners";
+  const rows = [
+    ["Request status", stored.status, current.status],
+    ["Ownership", ownership(stored.ownership), ownership(current.ownership)],
+    [
+      "Overdue only",
+      stored.overdue_only ? "Yes" : "No",
+      current.overdue_only ? "Yes" : "No",
+    ],
+    [
+      "Needs HR owner",
+      stored.needs_hr_owner ? "Yes" : "No",
+      current.needs_hr_owner ? "Yes" : "No",
+    ],
+    [
+      "Search follow-ups",
+      stored.search || "No search",
+      current.search || "No search",
+    ],
+  ];
+  const matches = (Object.keys(stored) as (keyof InboxFilters)[]).every(
+    (key) => stored[key] === current[key],
+  );
+  return (
+    <div role="region" aria-label={label}>
+      <h3>{label}</h3>
+      <p>
+        {matches
+          ? "These filters match the current inbox."
+          : "These filters differ from the current inbox."}
+      </p>
+      <div
+        className="ops-table"
+        tabIndex={0}
+        role="region"
+        aria-label={`${label} comparison table`}
+      >
+        <table>
+          <caption>Stored filters compared with your current inbox</caption>
+          <thead>
+            <tr>
+              <th scope="col">Filter</th>
+              <th scope="col">Stored</th>
+              <th scope="col">Current</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([name, saved, active]) => (
+              <tr key={name}>
+                <th scope="row">{name}</th>
+                <td
+                  style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+                >
+                  {saved}
+                </td>
+                <td
+                  style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+                >
+                  {active}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 export default function ReviewFollowupViews({
   filters,
   onApply,
@@ -26,6 +108,7 @@ export default function ReviewFollowupViews({
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
   const view = views.find((v) => String(v.id) === selected);
+  const archivedView = archivedViews.find((v) => String(v.id) === archivedId);
   useEffect(() => {
     let active = true;
     api("review-followup-views")
@@ -181,6 +264,13 @@ export default function ReviewFollowupViews({
           ))}
         </select>
       </label>
+      {view && (
+        <FilterPreview
+          stored={view.filters}
+          current={filters}
+          label="Saved view filters"
+        />
+      )}
       <div className="ops-actions">
         <button
           disabled={busy || !view}
@@ -252,6 +342,13 @@ export default function ReviewFollowupViews({
             ))}
           </select>
         </label>
+        {archivedView && (
+          <FilterPreview
+            stored={archivedView.filters}
+            current={filters}
+            label="Archived view filters"
+          />
+        )}
         <label>
           Restore view name
           <input
