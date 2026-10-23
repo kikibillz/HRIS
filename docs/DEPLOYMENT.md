@@ -21,7 +21,7 @@ Caddy provides TLS; ensure your firewall permits only the intended public proxy 
 
 ## Health and updates
 
-`GET /api/health/live` checks the HTTP process. `GET /api/health/ready` checks access to an existing database and required tables without creating a database or exposing records, paths, or internal errors. Readiness does not guarantee disk capacity or future write success. Both endpoints are public and uncached. Docker uses readiness for its health status; Docker Compose does not automatically restart a merely unhealthy container.
+`GET /api/health/live` checks the HTTP process. `GET /api/health/ready` checks access to an existing database and required core and performance/follow-up tables and migration columns without creating a database or exposing records, paths, or internal errors. Readiness does not guarantee disk capacity or future write success. Both endpoints are public and uncached. Docker uses readiness for its health status; Docker Compose does not automatically restart a merely unhealthy container.
 
 Before updates, create an encrypted operator backup and verify it using [BACKUP-RECOVERY.md](BACKUP-RECOVERY.md). Then pull the reviewed release and run `docker compose up -d --build`. Keep the same Compose project and named volume. Never delete the volume during updates. Check container logs and health after restart. Code rollback does not undo database migrations; use the recovery procedure if data recovery is needed.
 

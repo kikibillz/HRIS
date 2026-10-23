@@ -8,6 +8,8 @@ Open **HR operations & self-service** from the existing workspace, or visit `/op
 
 Read [HR suite workflows, payroll scope, external configuration, and acceptance evidence](docs/HR-SUITE.md). Payroll reference cases are **not accountant-approved**; the 100% accountant-agreement target still needs professional review. Payments currently provide bank export and recording of payments made externally, rather than live money movement.
 
+Read the [prioritized remaining launch checklist](docs/LAUNCH-CHECKLIST.md) for professional sign-off, hosting, backups, company acceptance and optional integrations.
+
 ## Review the app in your browser
 
 1. On this repository's GitHub page, select **Code → Codespaces → Create codespace on main**.

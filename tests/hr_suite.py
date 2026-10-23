@@ -807,6 +807,15 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    assert all(v['id']!=vid for v in a.expect(200,views_url)['archived_views'])
    a.expect(400,views_url,restore)
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:assert db.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]==before_restore_audit+1
+   # Public readiness rejects incomplete migrations without leaking internal details or repairing them.
+   assert guest.expect(200,'/api/health/ready')=={'status':'ready'}
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute('ALTER TABLE review_followup_views RENAME COLUMN pinned TO unavailable_pin_fixture')
+   assert guest.expect(503,'/api/health/ready')=={'status':'unavailable'}
+   assert guest.expect(200,'/api/health/live')=={'status':'ok'}
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert 'pinned' not in [r[1] for r in db.execute('PRAGMA table_info(review_followup_views)')]
+    db.execute('ALTER TABLE review_followup_views RENAME COLUMN unavailable_pin_fixture TO pinned')
+   assert guest.expect(200,'/api/health/ready')=={'status':'ready'}
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})
