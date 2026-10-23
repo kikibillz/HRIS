@@ -99,6 +99,14 @@ export default function PilotPanel() {
             )
             .join(" · ")}
         </p>
+        <p>
+          <a href="/api/pilot?download=1">Download recorded pilot report</a>
+        </p>
+        <p>
+          The private JSON report contains all saved results, notes and history.
+          Unsaved edits are excluded. Its checksum covers the exported contents;
+          the report does not grant accountant approval or launch authorization.
+        </p>
         <label>
           Test workflow
           <select

@@ -823,6 +823,7 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    guest.expect(401,'/api/pilot',pilot)
    a.expect(403,'/api/pilot',pilot,origin='https://evil.example')
    initial=a.expect(200,'/api/pilot')['cases'];assert len(initial)==13 and all(c['latest'] is None and c['history']==[] for c in initial)
+   empty_report=a.expect(200,'/api/pilot?download=1');assert empty_report['payload']['totals']=={'Pending':13,'Passed':0,'Failed':0,'Blocked':0}
    for change in [{'case_id':'foreign'},{'status':'Approved'},{'tester_role':'Owner'},{'expected_version':-1},{'expected_version':'0'},{'tester':''},{'revision':''},{'note':' '},{'note':'x'*2001}]:a.expect(400,'/api/pilot',{**pilot,**change})
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
     pilot_accounts=db.execute('SELECT * FROM accounts ORDER BY id').fetchall()
@@ -846,6 +847,25 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
     assert db.execute('SELECT * FROM accounts ORDER BY id').fetchall()==pilot_accounts
     assert db.execute('SELECT * FROM payroll_reviews ORDER BY id').fetchall()==pilot_reviews
+   # A pilot export is a private read-only snapshot with current and historic evidence.
+   export='/api/pilot?download=1'
+   guest.expect(401,export)
+   for client in [worker,peer,manager]:client.expect(403,export)
+   for invalid in ['', '0', 'true', '-1']:a.expect(400,'/api/pilot?download='+invalid)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    before_export=db.execute('SELECT * FROM pilot_results ORDER BY id').fetchall()
+    export_audit=db.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]
+   report=a.expect(200,export);payload=report['payload'];assert payload['format']=='hris-pilot-report-v1' and payload['company']['id']==ca['user']['company_id'] and payload['company']['name']=='Alpha'
+   assert payload['totals']=={'Pending':13,'Passed':0,'Failed':0,'Blocked':0}
+   staff_case=next(c for c in payload['cases'] if c['id']=='staff');assert len(staff_case['history'])==3 and staff_case['latest']['status']=='Pending' and staff_case['history'][-1]['status']=='Passed'
+   assert staff_case['latest']['recorded_by']=={'account_id':ca['user']['id'],'name':ca['user']['name']}
+   assert hashlib.sha256(json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()==report['content_hash']
+   assert payload['payroll_approval']=='Not established by this report.' and payload['launch_authorization']=='Not established by this report.'
+   assert not any(key in json.dumps(report) for key in ['password_hash','token_hash','Private Beta pilot evidence'])
+   beta_report=b.expect(200,export+'&company_id='+str(ca['user']['company_id']));assert beta_report['payload']['company']['id']==cb['user']['company_id'] and beta_report['payload']['totals']['Passed']==1
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM pilot_results ORDER BY id').fetchall()==before_export
+    assert db.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]==export_audit
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})

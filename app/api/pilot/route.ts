@@ -1,6 +1,6 @@
 import { currentUser, requireUser } from "@/lib/auth";
-import { pilotResults, recordPilotResult } from "@/lib/pilot";
-export async function GET() {
+import { pilotReport, pilotResults, recordPilotResult } from "@/lib/pilot";
+export async function GET(request: Request) {
   const user = await currentUser();
   if (!user)
     return Response.json({ error: "Please sign in." }, { status: 401 });
@@ -9,6 +9,23 @@ export async function GET() {
       { error: "Administrator access required." },
       { status: 403 },
     );
+  const download = new URL(request.url).searchParams.get("download");
+  if (download !== null) {
+    if (download !== "1")
+      return Response.json(
+        { error: "Invalid report download." },
+        { status: 400 },
+      );
+    const report = pilotReport(user);
+    return new Response(JSON.stringify(report, null, 2), {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="peopleos-pilot-${user.company_id}-${report.payload.generated_at.slice(0, 10)}.json"`,
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
   return Response.json(
     { cases: pilotResults(user) },
     { headers: { "Cache-Control": "private, no-store" } },

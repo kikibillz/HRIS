@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { db } from "./db";
 import type { User } from "./auth";
 import { audit } from "./tenant";
@@ -83,6 +84,60 @@ export function recordPilotResult(user: User, b: Record<string, unknown>) {
     audit(user, "Recorded pilot result", `${b.case_id}:${version + 1}`);
     db.exec("COMMIT");
     return { unchanged: false, version: version + 1 };
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
+
+// A read-only point-in-time export; explicit fields prevent unrelated account data leaking.
+export function pilotReport(user: User) {
+  if (user.access !== "admin")
+    throw new Error("Administrator access required.");
+  db.exec("BEGIN");
+  try {
+    const company = db
+      .prepare("SELECT id,name FROM companies WHERE id=?")
+      .get(user.company_id);
+    const evidence = (row: Record<string, unknown>) => ({
+      id: row.id,
+      version: row.version,
+      status: row.status,
+      tester: row.tester,
+      tester_role: row.tester_role,
+      revision: row.revision,
+      note: row.note,
+      recorded_by: { account_id: row.actor_id, name: row.actor_name },
+      created: row.created,
+    });
+    const cases = pilotResults(user).map((item) => ({
+      ...item,
+      latest: item.latest ? evidence(item.latest) : null,
+      history: item.history.map(evidence),
+    }));
+    const payload = {
+      format: "hris-pilot-report-v1",
+      company,
+      generated_at: new Date().toISOString(),
+      display_time_zone: "Africa/Lagos",
+      scope:
+        "Human-reported workflow observations. Tester identities, roles and app revisions are stated by the recorder.",
+      payroll_approval: "Not established by this report.",
+      launch_authorization: "Not established by this report.",
+      totals: Object.fromEntries(
+        pilotStatuses.map((status) => [
+          status,
+          cases.filter((item) => (item.latest?.status || "Pending") === status)
+            .length,
+        ]),
+      ),
+      cases,
+    };
+    const content_hash = createHash("sha256")
+      .update(JSON.stringify(payload))
+      .digest("hex");
+    db.exec("COMMIT");
+    return { content_hash, payload };
   } catch (e) {
     db.exec("ROLLBACK");
     throw e;
