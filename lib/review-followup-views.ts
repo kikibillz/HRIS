@@ -38,7 +38,7 @@ export function followupViews(user: User) {
     throw new Error("Administrator access required.");
   return db
     .prepare(
-      "SELECT id,name,filters_json,version FROM review_followup_views WHERE company_id=? AND account_id=? AND archived=0 ORDER BY name_key,id",
+      "SELECT id,name,filters_json,version,pinned FROM review_followup_views WHERE company_id=? AND account_id=? AND archived=0 ORDER BY pinned DESC,name_key,id",
     )
     .all(user.company_id, user.id)
     .map(({ filters_json, ...row }) => ({
@@ -49,7 +49,10 @@ export function followupViews(user: User) {
 export function saveFollowupView(user: User, b: Record<string, unknown>) {
   if (user.access !== "admin")
     throw new Error("Administrator access required.");
-  if (typeof b.action !== "string" || !["save", "archive"].includes(b.action))
+  if (
+    typeof b.action !== "string" ||
+    !["save", "archive", "pin"].includes(b.action)
+  )
     throw new Error("Invalid saved view action.");
   const editing = b.id !== undefined;
   if (
@@ -58,9 +61,11 @@ export function saveFollowupView(user: User, b: Record<string, unknown>) {
         Number(b.id) < 1 ||
         !Number.isSafeInteger(b.expected_version) ||
         Number(b.expected_version) < 1)) ||
-    (!editing && b.action === "archive")
+    (!editing && b.action !== "save")
   )
     throw new Error("Invalid saved view ID or version.");
+  if (b.action === "pin" && typeof b.pinned !== "boolean")
+    throw new Error("Choose whether to pin this view.");
   const name =
     b.action === "save" && typeof b.name === "string" ? b.name.trim() : "";
   if (b.action === "save" && (!name || name.length > 100))
@@ -79,6 +84,22 @@ export function saveFollowupView(user: User, b: Record<string, unknown>) {
     if (editing && !old) throw new Error("Saved view not found.");
     if (old && old.version !== b.expected_version)
       throw new Error("This view changed. Refresh saved views before editing.");
+    if (b.action === "pin") {
+      if (Number(old!.pinned) === Number(b.pinned)) {
+        db.exec("COMMIT");
+        return { id: old!.id, unchanged: true };
+      }
+      db.prepare(
+        "UPDATE review_followup_views SET pinned=?,version=version+1 WHERE id=?",
+      ).run(Number(b.pinned), Number(old!.id));
+      audit(
+        user,
+        b.pinned ? "Pinned private inbox view" : "Unpinned private inbox view",
+        String(old!.id),
+      );
+      db.exec("COMMIT");
+      return { id: old!.id, unchanged: false };
+    }
     if (
       old &&
       b.action === "save" &&
@@ -91,7 +112,7 @@ export function saveFollowupView(user: User, b: Record<string, unknown>) {
     let id = old?.id;
     if (b.action === "archive")
       db.prepare(
-        "UPDATE review_followup_views SET archived=1,version=version+1 WHERE id=?",
+        "UPDATE review_followup_views SET archived=1,pinned=0,version=version+1 WHERE id=?",
       ).run(Number(id));
     else {
       if (

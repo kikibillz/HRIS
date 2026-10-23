@@ -313,3 +313,21 @@ try {
 // Personal inbox preferences contain filters only; access remains enforced on each request.
 db.exec(`CREATE TABLE IF NOT EXISTS review_followup_views(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),account_id INTEGER NOT NULL REFERENCES accounts(id),name TEXT NOT NULL,name_key TEXT NOT NULL,filters_json TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1 CHECK(version>0),archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)));
 CREATE UNIQUE INDEX IF NOT EXISTS review_followup_view_names ON review_followup_views(account_id,name_key) WHERE archived=0;`);
+
+// Existing saved views start unpinned; preference changes preserve all filter contents.
+db.exec("BEGIN IMMEDIATE");
+try {
+  if (
+    !db
+      .prepare("PRAGMA table_info(review_followup_views)")
+      .all()
+      .some((column) => column.name === "pinned")
+  )
+    db.exec(
+      "ALTER TABLE review_followup_views ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))",
+    );
+  db.exec("COMMIT");
+} catch (e) {
+  db.exec("ROLLBACK");
+  throw e;
+}

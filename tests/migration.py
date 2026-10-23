@@ -58,4 +58,15 @@ INSERT INTO login_attempts VALUES('existing@example.test',2,9999999999999);
                    env={**os.environ, 'HRIS_DATA_DIR': directory}, check=True, capture_output=True)
     with sqlite3.connect(database) as db:
         assert assigned == {table: db.execute(f'SELECT * FROM {table}').fetchall() for table in tables}
+    # Upgrade an existing saved-view table from before pinning, without changing its settings.
+    with sqlite3.connect(database) as db:
+        db.execute("INSERT INTO review_followup_views(company_id,account_id,name,name_key,filters_json,version) VALUES(1,23,'Existing view','existing view',?,7)", ('{"status":"Open","ownership":"mine","overdue_only":true,"needs_hr_owner":false,"search":"Existing private filter"}',))
+        db.execute('ALTER TABLE review_followup_views DROP COLUMN pinned')
+        old_view=db.execute('SELECT * FROM review_followup_views').fetchone()
+    for _ in range(2):
+        subprocess.run(['node','--experimental-strip-types','--input-type=module','-e',f'import {str((Path.cwd()/"lib/db.ts").as_uri())!r}'],env={**os.environ,'HRIS_DATA_DIR':directory},check=True,capture_output=True)
+    with sqlite3.connect(database) as db:
+        migrated=db.execute('SELECT * FROM review_followup_views').fetchone()
+        assert migrated[:-1]==old_view and migrated[-1]==0
+        assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
 print('PASS: migration is repeatable; existing accounts, hashes, sessions, employees, requests, reasons and history, including legacy paid payroll, are unchanged.')

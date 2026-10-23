@@ -77,7 +77,8 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    workload_id=a.expect(200,'/api/review-followup-summaries',{})['id']
    saved_workload=a.expect(200,'/api/review-followup-summaries?id='+str(workload_id))
    saved_filters={'status':'Open','ownership':'mine','overdue_only':True,'needs_hr_owner':False,'search':'Recovery preference'}
-   a.expect(200,'/api/review-followup-views',{'action':'save','name':'Recovery inbox view','filters':saved_filters})
+   saved_view=a.expect(200,'/api/review-followup-views',{'action':'save','name':'Recovery inbox view','filters':saved_filters})
+   a.expect(200,'/api/review-followup-views',{'action':'pin','id':saved_view['id'],'expected_version':1,'pinned':True})
    a.document(wid)
    # A synthetic frozen offer proves archives preserve letters while excluding/revoking links.
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:
@@ -92,6 +93,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    encrypted=a.expect(200,'/api/backups',create);assert encrypted.startswith(b'HRISBK01') and b'Company A private document' not in encrypted and b'backup-employee@example.test' not in encrypted
    encoded=base64.b64encode(encrypted).decode();plain=crypto('decrypt',{'archive':encoded})
    assert json.loads(plain['tables']['review_followup_views'][0]['filters_json'])==saved_filters
+   assert plain['tables']['review_followup_views'][0]['pinned']==1
    assert plain['company_id']==company and plain['format']=='hris-company-v1'
    assert all('password_hash' not in account for account in plain['tables']['accounts'])
    for name in ['sessions','account_links','login_attempts','password_attempts','recruiting_offer_links']:assert name not in plain['tables']
@@ -178,7 +180,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    assert recovered_client.expect(200,'/api/review-followup-summaries',{})['reused']
    restored_batch=recovered_client.expect(200,'/api/review-followup-bulk',bulk_commit);assert restored_batch['reused'] and restored_batch['batch_id']==original_batch['batch_id']
    assert recovered_client.expect(200,'/api/review-followup-bulk?id='+str(original_batch['batch_id']))==original_batch_download
-   assert recovered_client.expect(200,'/api/review-followup-views')['views'][0]['filters']==saved_filters
+   restored_view=recovered_client.expect(200,'/api/review-followup-views')['views'][0];assert restored_view['filters']==saved_filters and restored_view['pinned']==1 and restored_view['version']==2
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert not db.execute('PRAGMA foreign_key_check').fetchall()
    print(f'PASS: {checks} backup HTTP checks; company isolation, credential exclusion, authenticated encryption, tamper/wrong-key rejection, document preservation, same-count content comparison; consistent operator backup, no overwrite, credential revocation in recovered copy, unchanged live data and original-password login after recovery.')
   except Exception:

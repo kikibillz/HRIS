@@ -747,6 +747,35 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute('DROP TRIGGER reject_view_save')
    a.expect(200,views_url,archive);assert a.expect(200,views_url)['views']==[]
    a.expect(400,views_url,archive);a.expect(200,views_url,body)
+   # Pinned views stay personal, ordered first, and use the same stale-write guard.
+   row=a.expect(200,views_url)['views'][0];vid=row['id'];assert row['pinned']==0
+   another=a.expect(200,views_url,{**body,'name':'A first alphabetically'})['id']
+   pin={'action':'pin','id':vid,'expected_version':1,'pinned':True}
+   for client,status in [(guest,401),(worker,403),(manager,403),(b,400)]:client.expect(status,views_url,pin)
+   a.expect(403,views_url,pin,origin='https://evil.example')
+   for bad in [None,1,'true',[]]:a.expect(400,views_url,{**pin,'pinned':bad})
+   a.expect(400,views_url,{'action':'pin','pinned':True})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE accounts SET access='admin' WHERE id=?",(peer_account,))
+   peer.expect(400,views_url,pin)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE accounts SET access='employee' WHERE id=?",(peer_account,))
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("CREATE TRIGGER reject_view_pin BEFORE INSERT ON audit_log WHEN NEW.action='Pinned private inbox view' BEGIN SELECT RAISE(ABORT,'fixture pin failure'); END")
+   a.expect(400,views_url,pin)
+   rows=a.expect(200,views_url)['views'];assert all(r['pinned']==0 and r['version']==1 for r in rows)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute('DROP TRIGGER reject_view_pin')
+   a.expect(200,views_url,pin);a.expect(400,views_url,pin)
+   rows=a.expect(200,views_url)['views'];assert rows[0]['id']==vid and rows[0]['version']==2 and rows[0]['pinned']==1 and rows[0]['filters']==settings
+   assert a.expect(200,views_url,{**pin,'expected_version':2})['unchanged']
+   assert a.expect(200,views_url)['views'][0]['version']==2
+   a.expect(400,views_url,{**body,'id':vid,'expected_version':1,'name':'Stale after pin'})
+   a.expect(200,views_url,{**body,'id':vid,'expected_version':2,'name':'Pinned renamed'})
+   assert a.expect(200,views_url)['views'][0]['pinned']==1
+   a.expect(200,views_url,{**pin,'expected_version':3,'pinned':False})
+   rows=a.expect(200,views_url)['views'];assert rows[0]['id']==another and all(r['pinned']==0 for r in rows)
+   a.expect(200,views_url,{**pin,'expected_version':4})
+   a.expect(200,views_url,{'action':'archive','id':vid,'expected_version':5})
+   a.expect(400,views_url,{**pin,'expected_version':6})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT pinned FROM review_followup_views WHERE id=?',(vid,)).fetchone()[0]==0
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})

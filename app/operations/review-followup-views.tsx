@@ -6,6 +6,7 @@ type View = {
   id: number;
   name: string;
   version: number;
+  pinned: number;
   filters: InboxFilters;
 };
 export default function ReviewFollowupViews({
@@ -76,14 +77,53 @@ export default function ReviewFollowupViews({
       setBusy(false);
     }
   }
+  async function pin() {
+    if (!view) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await api("review-followup-views", {
+        action: "pin",
+        id: view.id,
+        expected_version: view.version,
+        pinned: !view.pinned,
+      });
+      const data = await api("review-followup-views");
+      setViews(data.views);
+      setMessage(view.pinned ? "Saved view unpinned." : "Saved view pinned.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to pin view.");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <section className="panel ops-form">
       <h2>My saved inbox views</h2>
       <p>
         Save the current filters for your account. Views do not store questions
         or change assignments. Authorized company backups include these
-        preferences.
+        preferences. Pin favorites for quick access across sessions.
       </p>
+      <div className="ops-actions" aria-label="Pinned inbox views">
+        {views
+          .filter((v) => v.pinned)
+          .map((v) => (
+            <button
+              key={v.id}
+              disabled={busy}
+              onClick={() => {
+                setSelected(String(v.id));
+                setName(v.name);
+                onApply(v.filters);
+                setMessage("Saved view applied.");
+              }}
+            >
+              Apply pinned view: {v.name}
+            </button>
+          ))}
+      </div>
       <label>
         Saved inbox view
         <select
@@ -100,7 +140,7 @@ export default function ReviewFollowupViews({
           <option value="">Choose a view</option>
           {views.map((v) => (
             <option key={v.id} value={v.id}>
-              {v.name}
+              {v.pinned ? `Pinned · ${v.name}` : v.name}
             </option>
           ))}
         </select>
@@ -116,6 +156,9 @@ export default function ReviewFollowupViews({
           }}
         >
           Apply saved view
+        </button>
+        <button disabled={busy || !view} onClick={pin}>
+          {view?.pinned ? "Unpin selected view" : "Pin selected view"}
         </button>
         <button disabled={busy} onClick={refresh}>
           Refresh saved views
