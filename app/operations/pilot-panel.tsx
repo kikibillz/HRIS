@@ -23,10 +23,33 @@ type Case = {
 export default function PilotPanel() {
   const [cases, setCases] = useState<Case[]>([]),
     [selected, setSelected] = useState("staff"),
+    [statusFilter, setStatusFilter] = useState("All"),
+    [search, setSearch] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
   const item = cases.find((c) => c.id === selected);
+  const visible = cases.filter((c) => {
+    const status = c.latest?.status || "Pending";
+    return (
+      (statusFilter === "All" ||
+        (statusFilter === "Needs attention"
+          ? status !== "Passed"
+          : status === statusFilter)) &&
+      [
+        c.title,
+        c.expected,
+        c.latest?.tester || "",
+        c.latest?.revision || "",
+        c.latest?.note || "",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(search.trim().toLowerCase())
+    );
+  });
+  const outsideFilters = !!item && !visible.some((c) => c.id === selected);
+
   useEffect(() => {
     let active = true;
     api("pilot")
@@ -107,6 +130,51 @@ export default function PilotPanel() {
           Unsaved edits are excluded. Its checksum covers the exported contents;
           the report does not grant accountant approval or launch authorization.
         </p>
+        <div className="ops-form-grid">
+          <label>
+            Pilot status filter
+            <select
+              aria-label="Pilot status filter"
+              value={statusFilter}
+              disabled={busy}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              {["All", "Needs attention", ...pilotStatuses].map((v) => (
+                <option key={v}>{v}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Search pilot workflows
+            <input
+              aria-label="Search pilot workflows"
+              value={search}
+              maxLength={200}
+              disabled={busy}
+              placeholder="Workflow, tester, revision or current notes"
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
+        </div>
+        <p role="status">
+          {visible.length} of {cases.length} workflows match. Filters narrow the
+          picker; the open workflow stays open to preserve unsaved notes.
+          Downloads include all saved workflows.
+        </p>
+        {cases.length > 0 && visible.length === 0 && (
+          <p>No workflows match these filters.</p>
+        )}
+        {outsideFilters && <p>Your open workflow is outside these filters.</p>}
+        <button
+          className="secondary"
+          disabled={busy}
+          onClick={() => {
+            setStatusFilter("All");
+            setSearch("");
+          }}
+        >
+          Clear pilot filters
+        </button>
         <label>
           Test workflow
           <select
@@ -119,7 +187,13 @@ export default function PilotPanel() {
               setMessage("");
             }}
           >
-            {cases.map((c) => (
+            {outsideFilters && item && (
+              <option value={item.id}>
+                Current: {item.title} — {item.latest?.status || "Pending"}{" "}
+                (outside filters)
+              </option>
+            )}
+            {visible.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.title} — {c.latest?.status || "Pending"}
               </option>

@@ -4,6 +4,8 @@ Status: **not yet accepted by company users**. Automated software tests are sepa
 
 The company administrator can record these observations under **HR operations → Staff pilot**. Each workflow stores Pending/Passed/Failed/Blocked, the reported tester and role, tested revision and evidence/issue notes. Updates append history, reject stale edits and are included in backups. Tester identities/qualifications and app revisions are stated by the recorder. These records do not create accountant approval or a launch authorization. Use private references instead of staff data in notes.
 
+The checklist can filter current statuses (including **Needs attention**, which includes Pending, Failed and Blocked) and search workflow descriptions, reported tester, revision and current notes. The open workflow stays visible even outside the filter, preserving unsaved form notes. **Clear pilot filters** resets only the browse filters.
+
 **Download recorded pilot report** exports a private JSON snapshot of all 13 workflows, latest results and complete history. It includes reported tester/recorder details, revisions, evidence notes, a generation timestamp and a SHA-256 content checksum. It excludes unsaved form edits. The download is read-only and company-admin only; keep it private and share manually with authorized reviewers. A checksum detects content differences when compared with a trusted original; it is not a signature or professional approval.
 
 Record company/pilot environment, app Git revision, date/time (Africa/Lagos), HR lead, manager and employee testers, accountant reviewer, issue tracker and acceptance decision. All names and acceptance decisions are unassigned/pending until the real participants supply them.

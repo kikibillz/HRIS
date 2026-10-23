@@ -310,11 +310,23 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-browser-') as directory:
     admin.get_by_label('Test result',exact=True).select_option('Failed');admin.get_by_label('Evidence or issue notes',exact=True).fill('Retest found a fictional import issue.');admin.get_by_role('button',name='Record pilot result',exact=True).click();expect(admin.get_by_text('Recorded pilot history (2)',exact=True)).to_be_visible()
     admin.get_by_text('Recorded pilot history (2)',exact=True).click();pilot_history=admin.locator('details').filter(has_text='Recorded pilot history');expect(pilot_history.get_by_text('Checked fictional staff import on mobile.',exact=True)).to_be_visible();expect(pilot_history.get_by_text('Retest found a fictional import issue.',exact=True)).to_be_visible()
     expect(admin.get_by_text(re.compile('These results do not approve payroll'))).to_be_visible();assert admin.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    before_pilot_filter=admin.request.get(base+'/api/pilot').json()
+    admin.get_by_label('Evidence or issue notes',exact=True).fill('Unsaved draft must survive filtering.')
+    admin.get_by_label('Pilot status filter',exact=True).select_option('Failed');expect(admin.get_by_role('status').filter(has_text='1 of 13 workflows match.')).to_be_visible()
+    admin.get_by_label('Pilot status filter',exact=True).select_option('Passed');expect(admin.get_by_text('No workflows match these filters.',exact=True)).to_be_visible();expect(admin.get_by_text('Your open workflow is outside these filters.',exact=True)).to_be_visible()
+    expect(admin.get_by_label('Evidence or issue notes',exact=True)).to_have_value('Unsaved draft must survive filtering.');expect(admin.get_by_label('Test workflow',exact=True)).to_have_value('staff')
+    admin.get_by_label('Pilot status filter',exact=True).select_option('Pending');expect(admin.get_by_role('status').filter(has_text='12 of 13 workflows match.')).to_be_visible()
+    admin.get_by_label('Pilot status filter',exact=True).select_option('Needs attention');expect(admin.get_by_role('status').filter(has_text='13 of 13 workflows match.')).to_be_visible()
+    admin.get_by_label('Search pilot workflows',exact=True).fill(' BROWSER-PILOT-FIXTURE ');expect(admin.get_by_role('status').filter(has_text='1 of 13 workflows match.')).to_be_visible()
+    admin.get_by_label('Search pilot workflows',exact=True).fill('does-not-match-a-workflow');expect(admin.get_by_text('No workflows match these filters.',exact=True)).to_be_visible()
+    admin.get_by_role('button',name='Clear pilot filters',exact=True).click();expect(admin.get_by_label('Pilot status filter',exact=True)).to_have_value('All');expect(admin.get_by_label('Search pilot workflows',exact=True)).to_have_value('');expect(admin.get_by_role('status').filter(has_text='13 of 13 workflows match.')).to_be_visible()
+    expect(admin.get_by_label('Evidence or issue notes',exact=True)).to_have_value('Unsaved draft must survive filtering.');assert admin.request.get(base+'/api/pilot').json()==before_pilot_filter
     with admin.expect_download() as pilot_download:admin.get_by_role('link',name='Download recorded pilot report',exact=True).click()
     pilot_file=pilot_download.value;assert pilot_file.suggested_filename.startswith('peopleos-pilot-') and pilot_file.suggested_filename.endswith('.json') and pilot_file.failure() is None
     with open(pilot_file.path()) as source:pilot_report=json.load(source)
     report_staff=next(c for c in pilot_report['payload']['cases'] if c['id']=='staff');assert report_staff['latest']['status']=='Failed' and len(report_staff['history'])==2 and report_staff['history'][-1]['note']=='Checked fictional staff import on mobile.'
     assert pilot_report['payload']['payroll_approval']=='Not established by this report.'
+    assert report_staff['latest']['note']=='Retest found a fictional import issue.' and 'Unsaved draft must survive filtering.' not in json.dumps(pilot_report)
     report_response=admin.request.get(base+'/api/pilot?download=1');assert report_response.headers['cache-control']=='private, no-store' and report_response.headers['x-content-type-options']=='nosniff'
     assert staff.request.get(base+'/api/pilot?download=1').status==403
     staff.goto(base+'/operations?tab=pilot');expect(staff.get_by_role('alert').filter(has_text='Administrator access required.')).to_have_text('Administrator access required.')
