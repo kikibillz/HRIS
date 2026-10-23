@@ -776,6 +776,37 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
    a.expect(400,views_url,{**pin,'expected_version':6})
    with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
     assert db.execute('SELECT pinned FROM review_followup_views WHERE id=?',(vid,)).fetchone()[0]==0
+   # Archived views can be restored only by their owner, without replacing active views.
+   archived=a.expect(200,views_url)['archived_views'];assert any(v['id']==vid and v['filters']==settings for v in archived)
+   restore={'action':'restore','id':vid,'expected_version':6,'name':'Recovered view'}
+   for client,status in [(guest,401),(worker,403),(manager,403),(b,400)]:client.expect(status,views_url,restore)
+   assert b.expect(200,views_url)['archived_views']==[]
+   a.expect(403,views_url,restore,origin='https://evil.example')
+   for bad in ['', ' '*3, 'x'*101, None, 1]:a.expect(400,views_url,{**restore,'name':bad})
+   for bad in [0,-1,1.2,'6',None]:a.expect(400,views_url,{**restore,'expected_version':bad})
+   a.expect(400,views_url,{**restore,'expected_version':5})
+   a.expect(400,views_url,{**restore,'id':another,'expected_version':1})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE accounts SET access='admin' WHERE id=?",(peer_account,))
+   assert all(v['id']!=vid for v in peer.expect(200,views_url)['archived_views'])
+   peer.expect(400,views_url,restore)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute("UPDATE accounts SET access='employee' WHERE id=?",(peer_account,))
+   a.expect(400,views_url,{**restore,'name':' A FIRST ALPHABETICALLY '})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    before_restore=db.execute('SELECT * FROM review_followup_views ORDER BY id').fetchall()
+    before_restore_audit=db.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]
+    db.execute("CREATE TRIGGER reject_view_restore BEFORE INSERT ON audit_log WHEN NEW.action='Restored private inbox view' BEGIN SELECT RAISE(ABORT,'fixture restore failure'); END")
+   a.expect(400,views_url,restore)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM review_followup_views ORDER BY id').fetchall()==before_restore
+    assert db.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]==before_restore_audit
+    db.execute('DROP TRIGGER reject_view_restore')
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:restores=list(pool.map(lambda _:a.request(views_url,restore),range(2)))
+   assert sorted(r[0] for r in restores)==[200,400]
+   restored=next(v for v in a.expect(200,views_url)['views'] if v['id']==vid)
+   assert restored['name']=='Recovered view' and restored['filters']==settings and restored['version']==7 and restored['pinned']==0
+   assert all(v['id']!=vid for v in a.expect(200,views_url)['archived_views'])
+   a.expect(400,views_url,restore)
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:assert db.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]==before_restore_audit+1
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})

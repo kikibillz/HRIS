@@ -79,6 +79,8 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    saved_filters={'status':'Open','ownership':'mine','overdue_only':True,'needs_hr_owner':False,'search':'Recovery preference'}
    saved_view=a.expect(200,'/api/review-followup-views',{'action':'save','name':'Recovery inbox view','filters':saved_filters})
    a.expect(200,'/api/review-followup-views',{'action':'pin','id':saved_view['id'],'expected_version':1,'pinned':True})
+   archived_view=a.expect(200,'/api/review-followup-views',{'action':'save','name':'Archived recovery filters','filters':saved_filters})
+   a.expect(200,'/api/review-followup-views',{'action':'archive','id':archived_view['id'],'expected_version':1})
    a.document(wid)
    # A synthetic frozen offer proves archives preserve letters while excluding/revoking links.
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:
@@ -94,6 +96,7 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    encoded=base64.b64encode(encrypted).decode();plain=crypto('decrypt',{'archive':encoded})
    assert json.loads(plain['tables']['review_followup_views'][0]['filters_json'])==saved_filters
    assert plain['tables']['review_followup_views'][0]['pinned']==1
+   assert plain['tables']['review_followup_views'][1]['archived']==1
    assert plain['company_id']==company and plain['format']=='hris-company-v1'
    assert all('password_hash' not in account for account in plain['tables']['accounts'])
    for name in ['sessions','account_links','login_attempts','password_attempts','recruiting_offer_links']:assert name not in plain['tables']
@@ -181,6 +184,9 @@ with tempfile.TemporaryDirectory(prefix='hris-backups-') as directory:
    restored_batch=recovered_client.expect(200,'/api/review-followup-bulk',bulk_commit);assert restored_batch['reused'] and restored_batch['batch_id']==original_batch['batch_id']
    assert recovered_client.expect(200,'/api/review-followup-bulk?id='+str(original_batch['batch_id']))==original_batch_download
    restored_view=recovered_client.expect(200,'/api/review-followup-views')['views'][0];assert restored_view['filters']==saved_filters and restored_view['pinned']==1 and restored_view['version']==2
+   recovered_archived=recovered_client.expect(200,'/api/review-followup-views')['archived_views'][0];assert recovered_archived['id']==archived_view['id'] and recovered_archived['filters']==saved_filters
+   recovered_client.expect(200,'/api/review-followup-views',{'action':'restore','id':archived_view['id'],'expected_version':2,'name':'Recovered archived view'})
+   assert recovered_client.expect(200,'/api/review-followup-views')['archived_views']==[]
    with sqlite3.connect(os.path.join(live,'hris.sqlite')) as db:assert not db.execute('PRAGMA foreign_key_check').fetchall()
    print(f'PASS: {checks} backup HTTP checks; company isolation, credential exclusion, authenticated encryption, tamper/wrong-key rejection, document preservation, same-count content comparison; consistent operator backup, no overwrite, credential revocation in recovered copy, unchanged live data and original-password login after recovery.')
   except Exception:

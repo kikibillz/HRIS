@@ -33,14 +33,14 @@ function filters(value: unknown): InboxFilters {
     search: v.search,
   };
 }
-export function followupViews(user: User) {
+export function followupViews(user: User, archived = false) {
   if (user.access !== "admin")
     throw new Error("Administrator access required.");
   return db
     .prepare(
-      "SELECT id,name,filters_json,version,pinned FROM review_followup_views WHERE company_id=? AND account_id=? AND archived=0 ORDER BY pinned DESC,name_key,id",
+      "SELECT id,name,filters_json,version,pinned FROM review_followup_views WHERE company_id=? AND account_id=? AND archived=? ORDER BY pinned DESC,name_key,id",
     )
-    .all(user.company_id, user.id)
+    .all(user.company_id, user.id, Number(archived))
     .map(({ filters_json, ...row }) => ({
       ...row,
       filters: JSON.parse(String(filters_json)),
@@ -51,7 +51,7 @@ export function saveFollowupView(user: User, b: Record<string, unknown>) {
     throw new Error("Administrator access required.");
   if (
     typeof b.action !== "string" ||
-    !["save", "archive", "pin"].includes(b.action)
+    !["save", "archive", "pin", "restore"].includes(b.action)
   )
     throw new Error("Invalid saved view action.");
   const editing = b.id !== undefined;
@@ -67,8 +67,14 @@ export function saveFollowupView(user: User, b: Record<string, unknown>) {
   if (b.action === "pin" && typeof b.pinned !== "boolean")
     throw new Error("Choose whether to pin this view.");
   const name =
-    b.action === "save" && typeof b.name === "string" ? b.name.trim() : "";
-  if (b.action === "save" && (!name || name.length > 100))
+    (b.action === "save" || b.action === "restore") &&
+    typeof b.name === "string"
+      ? b.name.trim()
+      : "";
+  if (
+    (b.action === "save" || b.action === "restore") &&
+    (!name || name.length > 100)
+  )
     throw new Error("Enter a view name of up to 100 characters.");
   const settings =
     b.action === "save" ? JSON.stringify(filters(b.filters)) : "";
@@ -77,13 +83,36 @@ export function saveFollowupView(user: User, b: Record<string, unknown>) {
     const old = editing
       ? db
           .prepare(
-            "SELECT * FROM review_followup_views WHERE id=? AND company_id=? AND account_id=? AND archived=0",
+            "SELECT * FROM review_followup_views WHERE id=? AND company_id=? AND account_id=? AND archived=?",
           )
-          .get(Number(b.id), user.company_id, user.id)
+          .get(
+            Number(b.id),
+            user.company_id,
+            user.id,
+            b.action === "restore" ? 1 : 0,
+          )
       : undefined;
     if (editing && !old) throw new Error("Saved view not found.");
     if (old && old.version !== b.expected_version)
       throw new Error("This view changed. Refresh saved views before editing.");
+    if (b.action === "restore") {
+      if (
+        db
+          .prepare(
+            "SELECT id FROM review_followup_views WHERE company_id=? AND account_id=? AND name_key=? AND archived=0",
+          )
+          .get(user.company_id, user.id, name.toLowerCase())
+      )
+        throw new Error(
+          "You already have a view with this name. Choose another restore name.",
+        );
+      db.prepare(
+        "UPDATE review_followup_views SET archived=0,pinned=0,name=?,name_key=?,version=version+1 WHERE id=?",
+      ).run(name, name.toLowerCase(), Number(old!.id));
+      audit(user, "Restored private inbox view", String(old!.id));
+      db.exec("COMMIT");
+      return { id: old!.id, unchanged: false };
+    }
     if (b.action === "pin") {
       if (Number(old!.pinned) === Number(b.pinned)) {
         db.exec("COMMIT");

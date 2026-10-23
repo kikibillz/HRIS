@@ -17,6 +17,9 @@ export default function ReviewFollowupViews({
   onApply: (filters: InboxFilters) => void;
 }) {
   const [views, setViews] = useState<View[]>([]),
+    [archivedViews, setArchivedViews] = useState<View[]>([]),
+    [archivedId, setArchivedId] = useState(""),
+    [restoreName, setRestoreName] = useState(""),
     [selected, setSelected] = useState(""),
     [name, setName] = useState(""),
     [busy, setBusy] = useState(false),
@@ -27,7 +30,10 @@ export default function ReviewFollowupViews({
     let active = true;
     api("review-followup-views")
       .then((d) => {
-        if (active) setViews(d.views);
+        if (active) {
+          setViews(d.views);
+          setArchivedViews(d.archived_views);
+        }
       })
       .catch((e) => {
         if (active) setError(e.message);
@@ -42,6 +48,7 @@ export default function ReviewFollowupViews({
     try {
       const d = await api("review-followup-views");
       setViews(d.views);
+      setArchivedViews(d.archived_views);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to load views.");
     } finally {
@@ -63,6 +70,7 @@ export default function ReviewFollowupViews({
       });
       const data = await api("review-followup-views");
       setViews(data.views);
+      setArchivedViews(data.archived_views);
       setSelected(action === "archive" ? "" : String(result.id));
       setMessage(
         action === "archive"
@@ -91,9 +99,37 @@ export default function ReviewFollowupViews({
       });
       const data = await api("review-followup-views");
       setViews(data.views);
+      setArchivedViews(data.archived_views);
       setMessage(view.pinned ? "Saved view unpinned." : "Saved view pinned.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to pin view.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function restore() {
+    const archived = archivedViews.find((v) => String(v.id) === archivedId);
+    if (!archived) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await api("review-followup-views", {
+        action: "restore",
+        id: archived.id,
+        expected_version: archived.version,
+        name: restoreName,
+      });
+      const data = await api("review-followup-views");
+      setViews(data.views);
+      setArchivedViews(data.archived_views);
+      setSelected(String(result.id));
+      setName(restoreName.trim());
+      setArchivedId("");
+      setRestoreName("");
+      setMessage("Saved view restored. Apply it to reopen its filters.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to restore view.");
     } finally {
       setBusy(false);
     }
@@ -188,6 +224,55 @@ export default function ReviewFollowupViews({
           Archive selected view
         </button>
       </div>
+      <details>
+        <summary>Restore archived views ({archivedViews.length})</summary>
+        <p>
+          Restore your archived filters under their original name or a new name.
+          Restored views start unpinned.
+        </p>
+        <label>
+          Archived inbox view
+          <select
+            aria-label="Archived inbox view"
+            value={archivedId}
+            disabled={busy}
+            onChange={(e) => {
+              setArchivedId(e.target.value);
+              setRestoreName(
+                archivedViews.find((v) => String(v.id) === e.target.value)
+                  ?.name || "",
+              );
+            }}
+          >
+            <option value="">Choose an archived view</option>
+            {archivedViews.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name} · #{v.id}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Restore view name
+          <input
+            aria-label="Restore view name"
+            value={restoreName}
+            maxLength={100}
+            disabled={busy}
+            onChange={(e) => setRestoreName(e.target.value)}
+          />
+        </label>
+        <button
+          disabled={
+            busy ||
+            !archivedViews.some((v) => String(v.id) === archivedId) ||
+            !restoreName.trim()
+          }
+          onClick={restore}
+        >
+          Restore selected view
+        </button>
+      </details>
       {error && <p role="alert">{error}</p>}
       {message && <p role="status">{message}</p>}
     </section>

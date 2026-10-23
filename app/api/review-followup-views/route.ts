@@ -10,7 +10,7 @@ export async function GET() {
       { status: 403 },
     );
   return Response.json(
-    { views: followupViews(user) },
+    { views: followupViews(user), archived_views: followupViews(user, true) },
     { headers: { "Cache-Control": "private, no-store" } },
   );
 }
