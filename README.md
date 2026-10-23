@@ -10,6 +10,8 @@ Read [HR suite workflows, payroll scope, external configuration, and acceptance 
 
 Read the [prioritized remaining launch checklist](docs/LAUNCH-CHECKLIST.md) for professional sign-off, hosting, backups, company acceptance and optional integrations.
 
+Administrators can track human workflow observations in **HR operations → Staff pilot**, with preserved history and backup coverage. Payroll sign-off remains separate.
+
 Prepared launch materials: [operating runbook and backup automation](docs/OPERATIONS.md), [staff pilot acceptance](docs/PILOT-ACCEPTANCE.md), and [accountant review/sign-off](docs/PAYROLL-SIGNOFF.md). Production activation and human approvals remain pending.
 
 For the no-budget testing path and port 3000 troubleshooting, read [Private preview](docs/PRIVATE-PREVIEW.md). Run `npm run preview:check` in the actual Codespace before starting another server.

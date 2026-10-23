@@ -331,3 +331,8 @@ try {
   db.exec("ROLLBACK");
   throw e;
 }
+
+// Pilot observations append evidence; they do not grant launch or accountant approval.
+db.exec(
+  `CREATE TABLE IF NOT EXISTS pilot_results(id INTEGER PRIMARY KEY,company_id INTEGER NOT NULL REFERENCES companies(id),case_id TEXT NOT NULL,version INTEGER NOT NULL CHECK(version>0),status TEXT NOT NULL CHECK(status IN ('Pending','Passed','Failed','Blocked')),tester TEXT NOT NULL,tester_role TEXT NOT NULL,revision TEXT NOT NULL,note TEXT NOT NULL,actor_id INTEGER NOT NULL REFERENCES accounts(id),actor_name TEXT NOT NULL,created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')),UNIQUE(company_id,case_id,version));`,
+);

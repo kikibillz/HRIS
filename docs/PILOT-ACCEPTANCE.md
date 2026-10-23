@@ -2,6 +2,8 @@
 
 Status: **not yet accepted by company users**. Automated software tests are separate evidence. Start with fictional or approved test data in a private pilot environment; do not import real salaries before company/accountant review. Never place passwords, bank details or employee documents in this record.
 
+The company administrator can record these observations under **HR operations → Staff pilot**. Each workflow stores Pending/Passed/Failed/Blocked, the reported tester and role, tested revision and evidence/issue notes. Updates append history, reject stale edits and are included in backups. Tester identities/qualifications and app revisions are stated by the recorder. These records do not create accountant approval or a launch authorization. Use private references instead of staff data in notes.
+
 Record company/pilot environment, app Git revision, date/time (Africa/Lagos), HR lead, manager and employee testers, accountant reviewer, issue tracker and acceptance decision. All names and acceptance decisions are unassigned/pending until the real participants supply them.
 
 | Journey | Expected result | Human result / evidence |

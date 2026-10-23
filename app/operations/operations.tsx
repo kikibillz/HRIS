@@ -11,6 +11,7 @@ import RecruitingPanel from "./recruiting-panel";
 import ReminderAutomationPanel from "./reminder-automation-panel";
 import OnboardingProgressPanel from "./onboarding-progress-panel";
 import OnboardingPanel from "./onboarding-panel";
+import PilotPanel from "./pilot-panel";
 import LaunchPanel from "./launch-panel";
 import BackupsPanel from "./backups-panel";
 import ToolsPanel from "./tools-panel";
@@ -18,6 +19,12 @@ const extras: Record<
   string,
   { title: string; description: string; admin?: boolean; manager?: boolean }
 > = {
+  pilot: {
+    title: "Staff pilot",
+    description:
+      "Record workflow test results and preserve acceptance evidence.",
+    admin: true,
+  },
   "review-followup-inbox": {
     title: "Review follow-up inbox",
     description:
@@ -145,6 +152,7 @@ export default function Operations() {
   if (!meta) return null;
   const nav = [
     "start",
+    "pilot",
     "people",
     "import",
     "payroll",
@@ -259,6 +267,8 @@ export default function Operations() {
             <OnboardingProgressPanel />
           ) : tab === "onboarding" ? (
             <OnboardingPanel context={context} />
+          ) : tab === "pilot" ? (
+            <PilotPanel />
           ) : tab === "start" ? (
             <LaunchPanel />
           ) : tab === "backups" ? (

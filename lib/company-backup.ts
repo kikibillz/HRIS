@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { db } from "./db";
 export const companyBackupLimit = 96 * 1024 * 1024;
 const scopedQueries: Record<string, string> = {
+  pilot_results: "SELECT * FROM pilot_results WHERE company_id=?",
   review_followup_views:
     "SELECT * FROM review_followup_views WHERE company_id=?",
   review_followup_batches:

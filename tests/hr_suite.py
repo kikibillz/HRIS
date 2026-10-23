@@ -816,6 +816,36 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
     assert 'pinned' not in [r[1] for r in db.execute('PRAGMA table_info(review_followup_views)')]
     db.execute('ALTER TABLE review_followup_views RENAME COLUMN unavailable_pin_fixture TO pinned')
    assert guest.expect(200,'/api/health/ready')=={'status':'ready'}
+   # Human pilot observations are private company-admin records, not payroll approval.
+   guest.expect(401,'/api/pilot')
+   pilot={'case_id':'staff','expected_version':0,'status':'Passed','tester':'Fictional HR tester','tester_role':'HR','revision':'pilot-fixture-v1','note':'Validated fictional import and duplicate protection.'}
+   for client in [worker,peer,manager]:client.expect(403,'/api/pilot');client.expect(403,'/api/pilot',pilot)
+   guest.expect(401,'/api/pilot',pilot)
+   a.expect(403,'/api/pilot',pilot,origin='https://evil.example')
+   initial=a.expect(200,'/api/pilot')['cases'];assert len(initial)==13 and all(c['latest'] is None and c['history']==[] for c in initial)
+   for change in [{'case_id':'foreign'},{'status':'Approved'},{'tester_role':'Owner'},{'expected_version':-1},{'expected_version':'0'},{'tester':''},{'revision':''},{'note':' '},{'note':'x'*2001}]:a.expect(400,'/api/pilot',{**pilot,**change})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    pilot_accounts=db.execute('SELECT * FROM accounts ORDER BY id').fetchall()
+    pilot_reviews=db.execute('SELECT * FROM payroll_reviews ORDER BY id').fetchall()
+    db.execute("CREATE TRIGGER reject_pilot BEFORE INSERT ON audit_log WHEN NEW.action='Recorded pilot result' BEGIN SELECT RAISE(ABORT,'fixture pilot failure'); END")
+   a.expect(400,'/api/pilot',pilot)
+   assert all(c['latest'] is None for c in a.expect(200,'/api/pilot')['cases'])
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:db.execute('DROP TRIGGER reject_pilot')
+   assert a.expect(200,'/api/pilot',{**pilot,'company_id':cb['user']['company_id'],'actor_id':cb['user']['id']})['version']==1
+   row=next(c for c in a.expect(200,'/api/pilot')['cases'] if c['id']=='staff');assert row['latest']['actor_id']==ca['user']['id'] and row['latest']['actor_name']==ca['user']['name'] and len(row['history'])==1
+   first_pilot=row['latest'];assert all(c['latest'] is None for c in b.expect(200,'/api/pilot')['cases'])
+   b.expect(200,'/api/pilot',{**pilot,'note':'Private Beta pilot evidence'})
+   assert 'Private Beta pilot evidence' not in str(a.expect(200,'/api/pilot'))
+   a.expect(400,'/api/pilot',pilot)
+   assert a.expect(200,'/api/pilot',{**pilot,'expected_version':1})['unchanged']
+   changed_pilot={**pilot,'expected_version':1,'status':'Failed','note':'Fictional second test found an import issue.'}
+   with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:pilot_updates=list(pool.map(lambda _:a.request('/api/pilot',changed_pilot),range(2)))
+   assert sorted(r[0] for r in pilot_updates)==[200,400]
+   row=next(c for c in a.expect(200,'/api/pilot')['cases'] if c['id']=='staff');assert row['latest']['status']=='Failed' and row['latest']['version']==2 and row['history'][1]==first_pilot
+   a.expect(200,'/api/pilot',{**pilot,'expected_version':2,'status':'Pending','note':'Reopened for a new app revision.'})
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:
+    assert db.execute('SELECT * FROM accounts ORDER BY id').fetchall()==pilot_accounts
+    assert db.execute('SELECT * FROM payroll_reviews ORDER BY id').fetchall()==pilot_reviews
    a.expect(400,'/api/people',{'employee_id':bid,'name':'Foreign','role':'No','joined':'2026-01-01','status':'Active'},'PATCH');a.expect(200,'/api/people',{'employee_id':pid,'name':'Alpha Peer','role':'Engineer','joined':'2026-10-16','status':'Inactive','access':'employee'},'PATCH');peer.expect(401,'/api/leaves',{});peer.expect(401,'/api/auth',{'email':'alpha-peer@example.test','password':password})
    assert all(x['employee_id']!=pid for x in a.expect(200,'/api/onboarding-progress')['assignments'])
    a.expect(404,'/api/onboarding-progress',{'action':'remind','assignment_id':peer_assignment['id']})
