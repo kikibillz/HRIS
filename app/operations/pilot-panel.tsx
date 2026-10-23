@@ -114,6 +114,13 @@ export default function PilotPanel() {
           These results do not approve payroll or authorize production launch;
           accountant sign-off remains separate.
         </p>
+        <p>
+          <a href="/pilot-staff.csv" download>
+            Download fictional pilot staff CSV
+          </a>
+          . Preview/import it in a separate fictional company. Job titles do not
+          assign account permissions or create passwords.
+        </p>
         <p role="status">
           {pilotStatuses
             .map(

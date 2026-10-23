@@ -2,6 +2,8 @@
 
 Status: **not yet accepted by company users**. Automated software tests are separate evidence. Start with fictional or approved test data in a private pilot environment; do not import real salaries before company/accountant review. Never place passwords, bank details or employee documents in this record.
 
+For a guided first session, use [First hands-on pilot](FIRST-PILOT.md) and its fictional staff CSV.
+
 The company administrator can record these observations under **HR operations → Staff pilot**. Each workflow stores Pending/Passed/Failed/Blocked, the reported tester and role, tested revision and evidence/issue notes. Updates append history, reject stale edits and are included in backups. Tester identities/qualifications and app revisions are stated by the recorder. These records do not create accountant approval or a launch authorization. Use private references instead of staff data in notes.
 
 The checklist can filter current statuses (including **Needs attention**, which includes Pending, Failed and Blocked) and search workflow descriptions, reported tester, revision and current notes. The open workflow stays visible even outside the filter, preserving unsaved form notes. **Clear pilot filters** resets only the browse filters.

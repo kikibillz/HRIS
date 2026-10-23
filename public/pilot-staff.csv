@@ -1,0 +1,4 @@
+name,email,role,department,joined,basic,housing,transport,pension,nhf
+Pilot Manager,pilot-manager@example.test,Team Lead,Pilot Team,2026-01-01,500000,100000,50000,false,false
+Pilot Employee One,pilot-employee-one@example.test,Test Analyst,Pilot Team,2026-01-01,300000,80000,40000,false,false
+Pilot Employee Two,pilot-employee-two@example.test,Test Designer,Pilot Team,2026-01-01,350000,90000,45000,false,false

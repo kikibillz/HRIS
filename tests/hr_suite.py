@@ -816,6 +816,11 @@ with tempfile.TemporaryDirectory(prefix='hris-platform-') as directory:
     assert 'pinned' not in [r[1] for r in db.execute('PRAGMA table_info(review_followup_views)')]
     db.execute('ALTER TABLE review_followup_views RENAME COLUMN unavailable_pin_fixture TO pinned')
    assert guest.expect(200,'/api/health/ready')=={'status':'ready'}
+   # The public pilot CSV is fictional and passes the real import preview without modifying staff.
+   sample_csv=guest.expect(200,'/pilot-staff.csv');assert 'example.test' in sample_csv and 'password' not in sample_csv.lower()
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:before_sample=db.execute('SELECT * FROM employees ORDER BY id').fetchall()
+   sample_preview=a.expect(200,'/api/import',{'action':'preview','csv':sample_csv});assert sample_preview['count']==3 and sample_preview['errors']==[]
+   with sqlite3.connect(os.path.join(directory,'hris.sqlite')) as db:assert db.execute('SELECT * FROM employees ORDER BY id').fetchall()==before_sample
    # Human pilot observations are private company-admin records, not payroll approval.
    guest.expect(401,'/api/pilot')
    pilot={'case_id':'staff','expected_version':0,'status':'Passed','tester':'Fictional HR tester','tester_role':'HR','revision':'pilot-fixture-v1','note':'Validated fictional import and duplicate protection.'}
