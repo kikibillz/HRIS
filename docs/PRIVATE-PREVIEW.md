@@ -36,7 +36,15 @@ The report does not contain employee records, credentials, database contents or 
 npm run preview
 ```
 
-The startup script installs the locked dependencies, starts port 3000, and waits for a real PeopleOS login response. Concurrent starts use a lock before installing dependencies so they cannot replace each other's dependency directory. A failed install releases the lock. It preserves the database and existing accounts.
+The startup script installs locked dependencies when needed, starts port 3000, and waits for a real PeopleOS login response. A successful install is recorded against package.json, package-lock.json, .npmrc and the exact Node/platform runtime. Later starts reuse it only if those inputs, core package versions/binary and the local `npm ls` dependency-tree check still match. Concurrent starts use a lock before installing dependencies so they cannot replace each other's dependency directory. The lock is shared across preview ports because the dependency directory is shared. A failed install releases the lock. It preserves the database and existing accounts.
+
+To force a clean dependency reinstall after stopping the preview server:
+
+```bash
+HRIS_PREVIEW_REINSTALL=1 npm run preview
+```
+
+This rebuilds dependencies, not the database. An already healthy server is reused; stop it first when you intend to reinstall.
 
 If your environment stops detached processes, run the server directly in a terminal instead:
 
@@ -46,7 +54,7 @@ HRIS_ALLOW_SETUP=1 npm run dev -- --port 3000
 
 **Leave that terminal running.** Setup is available only while a private workspace has no administrator; existing accounts/passwords are retained. Open the forwarded port from your own Codespaces Ports panel. A server running in the cloud coding workspace beside this chat is a different process on a different machine; its success does not prove your Codespace is running.
 
-If startup reports an existing lock, inspect the other start and its terminal first. After a crashed start, confirm no installer/startup is still running before manually removing only the matching `data/.preview-start-3000.lock` directory. Never delete `data/`, `hris.sqlite`, or account records to resolve a port problem.
+If startup reports an existing lock, inspect the other start and its terminal first. After a crashed start, confirm no installer/startup is still running before manually removing only the matching `data/.preview-start.lock` directory. Never delete `data/`, `hris.sqlite`, or account records to resolve a port problem.
 
 ## Updates and budget
 

@@ -50,14 +50,19 @@ if node --input-type=module -e 'import net from "node:net"; const s=net.connect(
 fi
 
 mkdir -p data
-lock_dir="data/.preview-start-${HRIS_PREVIEW_PORT}.lock"
+lock_dir="data/.preview-start.lock"
 if ! mkdir "$lock_dir" 2>/dev/null; then
   echo 'Another preview start is already running. Wait for it to finish.' >&2
   exit 1
 fi
 trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
 # Lock before installation: simultaneous starts must not replace each other’s dependencies.
-npm ci --cache /tmp/hris-npm-cache
+if [[ "${HRIS_PREVIEW_REINSTALL:-0}" != "1" ]] && node scripts/preview-dependencies.mjs check; then
+  echo 'Reusing verified dependencies; dependency files and Node runtime are unchanged.'
+else
+  npm ci --cache /tmp/hris-npm-cache
+  node scripts/preview-dependencies.mjs record
+fi
 # Detach from the lifecycle/terminal session so the server survives its exit.
 nohup env HRIS_ALLOW_SETUP=1 npm run dev -- --port "$HRIS_PREVIEW_PORT" > data/preview.log 2>&1 < /dev/null &
 preview_pid=$!

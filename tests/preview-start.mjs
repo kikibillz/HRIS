@@ -22,6 +22,10 @@ try {
     "scripts/start-preview.sh",
     join(root, "scripts/start-preview.sh"),
   );
+  await copyFile(
+    "scripts/preview-dependencies.mjs",
+    join(root, "scripts/preview-dependencies.mjs"),
+  );
   const marker = join(root, "installs");
   await writeFile(
     join(root, "bin/npm"),
@@ -59,9 +63,15 @@ try {
     await new Promise((r) => setTimeout(r, 100));
   }
   assert(installing, "First start reached the fake installer");
-  const second = await start();
-  assert.equal(second.code, 1);
-  assert.match(second.stderr, /Another preview start/);
+  const alternate = createServer();
+  await new Promise((r) => alternate.listen(0, "127.0.0.1", r));
+  const alternatePort = alternate.address().port;
+  await new Promise((r) => alternate.close(r));
+  for (const overrides of [{}, { HRIS_PREVIEW_PORT: String(alternatePort) }]) {
+    const second = await start(overrides);
+    assert.equal(second.code, 1);
+    assert.match(second.stderr, /Another preview start/);
+  }
   assert.equal(
     (await readFile(marker, "utf8")).trim(),
     "install",
@@ -70,7 +80,7 @@ try {
   assert.equal((await first).code, 1);
   let locked = true;
   try {
-    await access(join(root, "data", `.preview-start-${port}.lock`));
+    await access(join(root, "data", ".preview-start.lock"));
   } catch {
     locked = false;
   }
